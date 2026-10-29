@@ -1,0 +1,246 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent"
+    android:orientation="vertical">
+    <!-- Landscape video layout for tablets (large-land) -->
+
+    <View
+        android:layout_width="0px"
+        android:layout_height="0px"
+        android:focusable="true"
+        android:focusableInTouchMode="true"/>
+
+    <LinearLayout
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <AutoCompleteTextView
+            android:id="@+id/search_query"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:hint="@android:string/search_go"
+            android:layout_weight="1"
+            android:saveEnabled="false"
+            android:singleLine="true"
+            android:imeOptions="actionSearch"
+            android:maxLength="100"/>
+
+        <ImageButton
+            android:id="@+id/search_btn"
+            android:layout_width="wrap_content"
+            android:layout_height="fill_parent"
+            android:src="@android:drawable/ic_menu_search"/>
+    </LinearLayout>
+
+    <io.github.gohoski.notpipe.ui.FixedTabHost
+        android:id="@+id/main_tabhost"
+        android:layout_width="fill_parent"
+        android:layout_height="fill_parent">
+
+        <LinearLayout
+            android:orientation="vertical"
+            android:layout_width="fill_parent"
+            android:layout_height="fill_parent">
+
+            <TabWidget
+                android:id="@android:id/tabs"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"/>
+
+            <FrameLayout
+                android:id="@android:id/tabcontent"
+                android:layout_width="fill_parent"
+                android:layout_height="fill_parent">
+
+                <!-- Popular tab -->
+                <LinearLayout
+                    android:id="@+id/popular_tab"
+                    android:orientation="vertical"
+                    android:layout_width="fill_parent"
+                    android:layout_height="fill_parent">
+
+                    <ProgressBar
+                        android:id="@+id/loading"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        tools:visibility="gone"/>
+
+                    <LinearLayout
+                        android:id="@+id/no_popular"
+                        android:layout_width="fill_parent"
+                        android:layout_height="wrap_content"
+                        android:padding="16dp"
+                        android:background="@drawable/rounded_background"
+                        android:layout_margin="16dp"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+                        <TextView
+                            android:layout_width="fill_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/no_popular"
+                            android:textSize="18sp"
+                            android:textStyle="bold"
+                            android:gravity="center"/>
+                        <TextView
+                            android:layout_width="fill_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:text="@string/no_popular_"/>
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/empty_videos"
+                        android:layout_width="fill_parent"
+                        android:layout_height="fill_parent"
+                        android:gravity="center"
+                        android:text="@string/no_videos"
+                        android:textSize="18sp"
+                        android:visibility="gone" />
+
+                    <GridView
+                        android:id="@+id/videos"
+                        android:layout_width="fill_parent"
+                        android:layout_height="fill_parent"
+                        android:scrollingCache="false"
+                        android:cacheColorHint="#00000000"
+                        android:numColumns="auto_fit"
+                        android:columnWidth="280dp"
+                        android:stretchMode="columnWidth"
+                        android:verticalSpacing="20dp"
+                        android:horizontalSpacing="20dp"
+                        android:paddingLeft="24dp"
+                        android:paddingRight="24dp"
+                        android:clipToPadding="false"
+                        android:scrollbarStyle="outsideOverlay"
+                        android:clickable="true"
+                        android:choiceMode="none"
+                        tools:listitem="@layout/item_video"/>
+                </LinearLayout>
+
+                <!-- Subscriptions tab: content below, centered loading overlay on top -->
+                <FrameLayout
+                    android:id="@+id/subs_tab"
+                    android:layout_width="fill_parent"
+                    android:layout_height="fill_parent">
+
+                    <LinearLayout
+                        android:orientation="vertical"
+                        android:layout_width="fill_parent"
+                        android:layout_height="fill_parent">
+
+                        <TextView
+                            android:id="@+id/subs_last_update"
+                            android:layout_width="fill_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:textSize="12sp"
+                            android:visibility="gone"/>
+
+                        <LinearLayout
+                            android:id="@+id/no_subs"
+                            android:layout_width="fill_parent"
+                            android:layout_height="wrap_content"
+                            android:padding="16dp"
+                            android:background="@drawable/rounded_background"
+                            android:layout_margin="16dp"
+                            android:orientation="vertical"
+                            android:visibility="gone">
+                            <TextView
+                                android:layout_width="fill_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/no_subs"
+                                android:textSize="18sp"
+                                android:textStyle="bold"
+                                android:gravity="center"/>
+                            <TextView
+                                android:layout_width="fill_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="center"
+                                android:text="@string/no_subs_"/>
+                            <Button
+                                android:id="@+id/manage_subs_btn"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_gravity="center_horizontal"
+                                android:layout_marginTop="8dp"
+                                android:text="@string/manage_subscriptions"/>
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/empty_subs"
+                            android:layout_width="fill_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_horizontal"
+                            android:paddingTop="48dp"
+                            android:text="@string/no_videos"
+                            android:textSize="18sp"
+                            android:visibility="gone" />
+
+                        <!-- Pull down to refresh the feed (manual mode) -->
+                        <io.github.gohoski.notpipe.ui.PullToRefreshLayout
+                            android:id="@+id/subs_pull"
+                            android:layout_width="fill_parent"
+                            android:layout_height="fill_parent"
+                            android:visibility="gone">
+
+                            <!-- Landscape tablet grid, same tuning as the Popular tab:
+                                 auto-fit 280dp columns instead of one stretched row. -->
+                            <GridView
+                                android:id="@+id/subs_list"
+                                android:layout_width="fill_parent"
+                                android:layout_height="fill_parent"
+                                android:scrollingCache="false"
+                                android:cacheColorHint="#00000000"
+                                android:numColumns="auto_fit"
+                                android:columnWidth="280dp"
+                                android:stretchMode="columnWidth"
+                                android:verticalSpacing="20dp"
+                                android:horizontalSpacing="20dp"
+                                android:paddingLeft="24dp"
+                                android:paddingRight="24dp"
+                                android:clipToPadding="false"
+                                android:scrollbarStyle="outsideOverlay"
+                                android:clickable="true"
+                                android:choiceMode="none"
+                                tools:listitem="@layout/item_video"/>
+                        </io.github.gohoski.notpipe.ui.PullToRefreshLayout>
+                    </LinearLayout>
+
+                    <!-- NewPipe-style refresh progress, centered over the grid -->
+                    <LinearLayout
+                        android:id="@+id/subs_loading_overlay"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:orientation="vertical"
+                        android:gravity="center_horizontal"
+                        android:background="@drawable/rounded_background"
+                        android:padding="16dp"
+                        android:visibility="gone"
+                        tools:visibility="visible">
+
+                        <ProgressBar
+                            android:id="@+id/subs_progress"
+                            style="?android:attr/progressBarStyleHorizontal"
+                            android:layout_width="220dp"
+                            android:layout_height="wrap_content"
+                            android:indeterminate="true"/>
+
+                        <TextView
+                            android:id="@+id/subs_progress_text"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:paddingTop="6dp"
+                            android:textSize="12sp"
+                            tools:text="Loading channels: 3 / 10"/>
+                    </LinearLayout>
+                </FrameLayout>
+            </FrameLayout>
+        </LinearLayout>
+    </io.github.gohoski.notpipe.ui.FixedTabHost>
+</LinearLayout>

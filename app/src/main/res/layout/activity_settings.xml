@@ -1,0 +1,314 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent"
+    android:orientation="vertical"
+    android:focusable="true"
+    android:focusableInTouchMode="true">
+    
+    <ScrollView 
+        android:layout_width="fill_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+        
+        <LinearLayout
+            android:orientation="vertical"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/instances"
+                android:textStyle="bold"
+                android:textSize="20sp"
+                android:paddingBottom="8dp"
+                android:textColor="@android:color/primary_text_dark"/>
+
+            <CheckBox
+                android:id="@+id/update_chk"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/update_instances_url"/>
+            <LinearLayout
+                android:id="@+id/update_instances"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+                <EditText
+                    android:id="@+id/instances_url"
+                    android:layout_width="fill_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="http://144.31.189.129/notPipe.json"
+                    android:inputType="textUri"
+                    android:singleLine="true"/>
+
+                <LinearLayout
+                    android:layout_width="fill_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/update_freq"/>
+
+                        <Spinner
+                            android:id="@+id/update_spinner"
+                            android:layout_width="fill_parent"
+                            android:layout_height="wrap_content"
+                            android:entries="@array/update_freq_"/>
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"/>
+
+                    <Button
+                        android:id="@+id/update_btn"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/update"
+                        android:layout_gravity="center_vertical"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/apiInstancesContainer"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"/>
+
+            <TextView
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/playback"
+                android:textStyle="bold"
+                android:textSize="20sp"
+                android:paddingTop="24dp"
+                android:textColor="@android:color/primary_text_dark"/>
+
+            <LinearLayout
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/video_player"
+                    android:textStyle="bold"/>
+                <Spinner
+                    android:id="@+id/player_spinner"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:entries="@array/video_player_"/>
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/video_player_desc"/>
+
+            <CheckBox
+                android:id="@+id/stream_playback_chk"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/stream_playback"/>
+
+            <TextView
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/stream_playback_desc"/>
+
+            <CheckBox
+                android:id="@+id/async_uri_chk"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/async_uri"/>
+
+            <TextView
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/async_uri_"/>
+
+            <LinearLayout
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/video_quality"
+                    android:textStyle="bold"/>
+                <Spinner
+                    android:id="@+id/quality_spinner"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:entries="@array/qualities"/>
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/quality_recommend"/>
+
+            <TextView
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/conversion"
+                android:textStyle="bold"
+                android:textSize="20sp"
+                android:paddingTop="24dp"
+                android:textColor="@android:color/primary_text_dark"/>
+
+            <TextView
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/conversion_"/>
+
+            <CheckBox
+                android:id="@+id/convert_chk"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/convert_videos"/>
+
+            <LinearLayout
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:id="@+id/codec_layout"
+                android:visibility="gone"
+                tools:visibility="visible">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/video_codec"
+                    android:textStyle="bold"/>
+                <Spinner
+                    android:id="@+id/codec_spinner"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:entries="@array/codecs"/>
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/general"
+                android:textStyle="bold"
+                android:textSize="20sp"
+                android:paddingTop="24dp"
+                android:textColor="@android:color/primary_text_dark"/>
+
+            <CheckBox
+                android:id="@+id/fullscreen_rotate_chk"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/force_landscape"/>
+
+            <TextView
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/feed_settings"
+                android:textStyle="bold"
+                android:textSize="20sp"
+                android:paddingTop="24dp"
+                android:textColor="@android:color/primary_text_dark"/>
+
+            <LinearLayout
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/feed_update_mode"
+                    android:textStyle="bold"/>
+
+                <Spinner
+                    android:id="@+id/feed_mode_spinner"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:entries="@array/feed_update_modes"/>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/feed_interval_layout"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/feed_auto_interval"
+                    android:textStyle="bold"/>
+
+                <Spinner
+                    android:id="@+id/feed_interval_spinner"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:entries="@array/feed_intervals_"/>
+            </LinearLayout>
+
+            <CheckBox
+                android:id="@+id/hide_popular_chk"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/hide_popular_feed"
+                android:paddingTop="8dp"/>
+
+            <TextView
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/feed_update_desc"/>
+
+            <TextView
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="24dp"
+                android:text="@string/setting_footer"
+                android:textStyle="italic"/>
+        </LinearLayout>
+    </ScrollView>
+
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content">
+        
+        <Button
+            android:id="@+id/cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@android:string/cancel"/>
+            
+        <Button
+            android:id="@+id/ok"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@android:string/ok"/>
+    </LinearLayout>
+</LinearLayout>

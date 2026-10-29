@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">notPipe+</string>
+    <string-array name="qualities">
+        <item>360p</item>
+        <item>480p</item>
+        <item>720p</item>
+        <item>1080p</item>
+    </string-array>
+    <string-array name="codecs">
+        <item>MPEG-4 Visual</item>
+        <item>H.263</item>
+    </string-array>
+</resources>

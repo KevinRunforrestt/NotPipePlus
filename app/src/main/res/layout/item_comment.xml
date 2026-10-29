@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:paddingTop="15dp">
+    <ImageView
+        android:id="@+id/channel_thumbnail"
+        android:layout_width="40dip"
+        android:layout_height="40dip"
+        android:scaleType="fitCenter"
+        android:layout_marginRight="8dip"
+        tools:src="@android:drawable/ic_popup_sync"/>
+    <LinearLayout
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+        <LinearLayout
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <TextView
+                android:id="@+id/channel_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textStyle="bold"
+                android:textSize="12sp"
+                android:textColor="@android:color/primary_text_dark"
+                tools:text="\@sigma"/>
+            <TextView
+                android:id="@+id/date"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="12sp"
+                android:paddingLeft="5dp"
+                tools:text="1 year ago"/>
+        </LinearLayout>
+        <TextView
+            android:id="@+id/content"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            tools:text="Наше дело не так однозначно, как может показаться: разбавленное изрядной долей эмпатии, рациональное мышление представляет собой интересный эксперимент проверки соответствующих условий активизации."/>
+        <!-- NewPipe-style replies toggle: "View N replies" / "Hide replies" -->
+        <TextView
+            android:id="@+id/replies_toggle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="#FF5F8DD8"
+            android:paddingTop="4dp"
+            android:paddingBottom="2dp"
+            android:visibility="gone"
+            tools:visibility="visible"
+            tools:text="View 12 replies"/>
+    </LinearLayout>
+</LinearLayout>

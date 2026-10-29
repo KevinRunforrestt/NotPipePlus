@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingLeft="16dp"
+    android:paddingRight="16dp"
+    android:paddingTop="10dp"
+    android:paddingBottom="10dp">
+    <ImageView
+        android:id="@+id/channel_thumbnail"
+        android:layout_width="40dip"
+        android:layout_height="40dip"
+        android:scaleType="fitCenter"
+        android:layout_marginRight="10dip"
+        tools:src="@android:drawable/ic_popup_sync"/>
+    <TextView
+        android:id="@+id/channel_title"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textSize="16sp"
+        android:singleLine="true"
+        android:ellipsize="end"
+        android:textColor="@android:color/primary_text_dark"
+        tools:text="Rick Astley"/>
+</LinearLayout>

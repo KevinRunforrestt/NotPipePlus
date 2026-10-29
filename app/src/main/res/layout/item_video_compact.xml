@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:orientation="horizontal"
+    android:descendantFocusability="blocksDescendants">
+    <!-- Normal portrait layout for phones -->
+    <FrameLayout
+        android:layout_width="130dp"
+        android:layout_height="wrap_content">
+        <io.github.gohoski.notpipe.ui.AspectRatioImageView
+            android:id="@+id/video_thumbnail"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:scaleType="centerCrop"
+            tools:src="@android:color/white" />
+        <TextView
+            android:id="@+id/duration"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|right"
+            android:layout_margin="5dip"
+            android:background="#AA000000"
+            android:padding="3dip"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:visibility="gone"
+            tools:visibility="visible"
+            tools:text="00:00"/>
+
+    </FrameLayout>
+    <LinearLayout
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center_vertical"
+        android:paddingLeft="10dp">
+            <io.github.gohoski.notpipe.ui.EllipsizingTextView
+                android:id="@+id/video_title"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:textStyle="bold"
+                tools:text="Windows Phone СЕГОДНЯ — История и его положение"
+                android:maxLines="2"
+                android:ellipsize="end"/>
+            <TextView
+                android:id="@+id/channel_title"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:textSize="12sp"
+                tools:text="Mrwhosetheboss\n999 млн.  · 4 года назад" />
+    </LinearLayout>
+</LinearLayout>

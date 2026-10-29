@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="thousands_suffix">" тыс."</string>
+    <string name="millions_suffix">" млн"</string>
+    <string name="billions_suffix">" млрд"</string>
+    <string name="decimal_separator">,</string>
+    <string name="percent">%1$d%%</string> <!-- %1$d — число, %% — знак процента -->
+    <string name="just_now">Только что</string>
+    <plurals name="seconds_ago">
+        <item quantity="one">%d секунду назад</item>
+        <item quantity="few">%d секунды назад</item>
+        <item quantity="many">%d секунд назад</item>
+        <item quantity="other">%d сек. назад</item>
+    </plurals>
+    <plurals name="minutes_ago">
+        <item quantity="one">%d минуту назад</item>
+        <item quantity="few">%d минуты назад</item>
+        <item quantity="many">%d минут назад</item>
+        <item quantity="other">%d мин. назад</item>
+    </plurals>
+    <plurals name="hours_ago">
+        <item quantity="one">%d час назад</item>
+        <item quantity="few">%d часа назад</item>
+        <item quantity="many">%d часов назад</item>
+        <item quantity="other">%d ч. назад</item>
+    </plurals>
+    <plurals name="days_ago">
+        <item quantity="one">%d день назад</item>
+        <item quantity="few">%d дня назад</item>
+        <item quantity="many">%d дней назад</item>
+        <item quantity="other">%d дн. назад</item>
+    </plurals>
+    <plurals name="weeks_ago">
+        <item quantity="one">%d неделю назад</item>
+        <item quantity="few">%d недели назад</item>
+        <item quantity="many">%d недель назад</item>
+        <item quantity="other">%d нед. назад</item>
+    </plurals>
+    <plurals name="months_ago">
+        <item quantity="one">%d месяц назад</item>
+        <item quantity="few">%d месяца назад</item>
+        <item quantity="many">%d месяцев назад</item>
+        <item quantity="other">%d мес. назад</item>
+    </plurals>
+    <plurals name="years_ago">
+        <item quantity="one">%d год назад</item>
+        <item quantity="few">%d года назад</item>
+        <item quantity="many">%d лет назад</item>
+        <item quantity="other">%d лет назад</item>
+    </plurals>
+    <string name="comments">Комментарии</string>
+    <string name="no_popular">Попробуйте найти что-нибудь</string>
+    <string name="no_popular_">Не найдено популярных видео.</string>
+    <string name="playback_via">Воспроизведение через %s &gt;</string>
+    <string name="related">Похожие</string>
+    <string name="share">Поделиться</string>
+    <string name="views">%s просмотров</string>
+    <string name="instances">Инстансы</string>
+    <string name="like">Нравится</string>
+    <string name="about">О приложении</string>
+    <string name="playback">Воспроизведение</string>
+    <string name="quality_recommend">Для быстрой работы рекомендуется 360p.</string>
+    <string name="settings">Настройки</string>
+    <string name="stream_playback">Потоковое воспроизведение</string>
+    <string name="stream_playback_desc">Если отключить, то перед воспроизведением видео будут скачиваться на SD-карту, что иногда улучшает стабильность.</string>
+    <string name="update">Обновить</string>
+    <string name="update_freq">Частота обновления</string>
+    <string name="update_instances_url">Обновлять инстансы с ссылки</string>
+    <string name="video_player">Видеоплеер</string>
+    <string-array name="update_freq_">
+        <item>При открытии приложения</item>
+        <item>Ежедневно</item>
+        <item>Раз в 2 дня</item>
+        <item>Раз в 3 дня</item>
+    </string-array>
+    <string-array name="video_player_">
+        <item>Встроенный</item>
+        <item>Внешний</item>
+    </string-array>
+    <string name="video_player_desc"><b>Встроенный плеер</b> воспроизводит видео непосредственно в приложении, используя системный плеер устройства. <b>Внешний плеер</b> открывает видео в отдельном окне, позволяя выбрать плеер (например, MX Player). <i>Если видео не работают, установите MX Player и переключитесь на внешний плеер. Если MX Player недоступен для вашей версии Android или тормозит, попробуйте включить конвертацию ниже.</i></string>
+    <string name="video_quality">Качество видео</string>
+    <string name="incorrect_url">Введите корректную ссылку</string>
+    <string name="instance_exist">Инстанс уже введён</string>
+    <string name="url">Введите URL</string>
+    <string name="conversion">Конвертация</string>
+    <string name="conversion_">Конвертация поможет, если устройство не поддерживает H.264, а MX Player тормозит или недоступен. Конвертация доступна только с инстансами yt2009 и YtAPILegacy. Необходима SD-карта. При конвертации не пытайтесь просматривать длинные видео. <b>Не включайте, если видео работают нормально.</b></string>
+    <string name="convert_videos">Конвертировать видео</string>
+    <string name="updating_instances">Обновление инстансов</string>
+    <string name="video_codec">Видеокодек</string>
+    <string name="setting_footer">notPipe — клиент YouTube для старых андроидов\n▶ github.com/gohoski/notPipe\n▶ t.me/AppDataApps</string>
+    <string name="loading">Загрузка</string>
+    <string name="dead_instance">Инстанс %s мёртв, переключаемся</string>
+    <string name="try_again">Попробуйте снова</string>
+    <string name="desc">Описание</string>
+    <string name="select_ins">Выберите инстанс</string>
+    <string name="loading_">(загрузка)</string>
+    <string name="about_">notPipe+ — форк notPipe с дополнительными функциями.\nФорк от Kevin_Runforrestt · оригинальное приложение — gohoski\n▶ github.com/gohoski/notPipe\n▶ t.me/AppDataApps\n\nРаспространяется под лицензией WTFPL. Подробности на www.wtfpl.net.\nБиблиотека NNJSON, используемая в этом проекте, распространяется под лицензией MIT, текст которой приведён ниже.</string>
+    <string name="conv_long">Конвертация может занять некоторое время. Пожалуйста, подождите.</string>
+    <string name="cache">кэш</string>
+    <string name="sd_card">Чтобы продолжить, вставьте SD-карту</string>
+    <string name="channel">Канал</string>
+    <string name="download">Скачать</string>
+    <string name="full_screen">Во весь экран</string>
+    <string name="ins_upd">Инстансы обновлены успешно</string>
+    <string name="subscribers">%s подписчиков</string>
+    <string name="video_count">Кол-во найденных видео: %d</string>
+    <string name="metadata_fail">Не удалось загрузить информацию о видео, повторите попытку позже</string>
+    <string name="no_quality">Выбранное качество недоступно, пробуем 360p</string>
+    <string name="async_uri">Асинхронная инициализация плеера</string>
+    <string name="async_uri_">Может устранить зависание на некоторых устройствах с Android 4.0–4.3. Включите, если приложение зависает на несколько секунд перед воспроизведением.</string>
+    <string name="sd_card_space">На SD-карте недостаточно свободного места</string>
+    <string name="confirm_exit">Для выхода нажмите «Назад»</string>
+    <string name="unsupported_format">Данный формат не поддерживается вашим устройством. Попробуйте сменить качество или плеер.</string>
+    <string name="for_you">Для вас</string>
+    <string name="hq_long">Обработка %sp может занять некоторое время. Пожалуйста, подождите.</string>
+    <string name="experimental_1080">1080p является экспериментальным; пожалуйста, используйте 720p для стабильности</string>
+    <string name="no_related">Похожих видео не найдено</string>
+    <string name="no_comments">Комментариев не найдено</string>
+    <string name="no_videos">Видео не найдено</string>
+    <string name="videos">Видео</string>
+    <string name="long_360">Видео длится более часа, качество снижено до 360p</string>
+    <string name="select_quality">Выберите качество видео</string>
+    <string name="latest">Новые</string>
+    <string name="popular">Популярные</string>
+    <string name="content_unavailable">Контент недоступен</string>
+    <string name="general">Основное</string>
+    <string name="force_landscape">Принудительная альбомная ориентация в полноэкранном режиме</string>
+    <string name="download_speed">%d КБ/с</string>
+    <string name="download_progress_percent">%1$d%% (%2$d КБ/с)</string>
+    <string name="download_progress_mb">%1$.1f МБ (%2$d КБ/с)</string>
+
+    <!-- Main tabs -->
+    <string name="popular_tab">Популярное</string>
+    <string name="subs_tab">Подписки</string>
+
+    <!-- Subscriptions -->
+    <string name="subscriptions">Подписки</string>
+    <string name="no_subs">Нет подписок</string>
+    <string name="no_subs_">Импортируйте подписки из Google Takeout (subscriptions.csv) или экспорта NewPipe, либо подпишитесь на каналы со страницы любого канала.</string>
+    <string name="no_subs_channels">Нет подписок.\nИмпортируйте из меню или подпишитесь со страницы канала.</string>
+    <string name="manage_subscriptions">Управление подписками</string>
+    <string name="subs_hint">Нажмите на канал, чтобы открыть. Долгое нажатие — отписка.</string>
+    <string name="import_subscriptions">Импортировать подписки</string>
+    <string name="export_subscriptions">Экспортировать подписки</string>
+    <string name="imported_subscriptions">Импортировано подписок: %d</string>
+    <string name="import_error">Не удалось импортировать: файл не читается</string>
+    <string name="import_no_channels">В этом файле не найдено ни одного канала.\n\nПоддерживаются: CSV из Google Takeout, CSV/JSON из NewPipe, экспорт notPipe+ — или любой текст со ссылками на каналы.</string>
+    <string name="imported_subs_detail">Импортировано новых каналов: %1$d (пропущено дубликатов: %2$d)</string>
+    <string name="exported_subscriptions">Подписки экспортированы в %s</string>
+    <string name="unsubscribe_q">Отписаться от %s?</string>
+    <string name="subscribed_toast">Вы подписались на %s</string>
+    <string name="unsubscribed_toast">Вы отписались от %s</string>
+    <string name="subscribe">Подписаться</string>
+    <string name="subscribed_button">Вы подписаны</string>
+    <string name="unsubscribe">Отписаться</string>
+
+    <!-- Local playlists -->
+    <string name="playlists">Плейлисты</string>
+    <string name="new_playlist">Новый плейлист</string>
+    <string name="playlist_name">Название плейлиста</string>
+    <string name="add_to_playlist">Добавить в плейлист</string>
+    <string name="added_to_playlist">Добавлено в %s</string>
+    <string name="no_playlists">Плейлистов пока нет.\nСоздайте один со страницы любого видео.</string>
+    <string name="delete_playlist_q">Удалить плейлист %s?</string>
+    <string name="playlist_deleted">Плейлист удалён</string>
+    <string name="remove_from_playlist">Убрать из плейлиста</string>
+
+    <!-- Channel playlists -->
+    <string name="videos_count">%d видео</string>
+    <string name="no_channel_playlists">Нет публичных плейлистов</string>
+    <string name="channel_playlists_error">Не удалось загрузить плейлисты канала.\nНажмите, чтобы повторить.</string>
+
+    <!-- Feed (NewPipe-style) -->
+    <string name="feed_error">Не удалось загрузить ленту подписок.\nПроверьте соединение и нажмите, чтобы повторить.</string>
+    <string name="feed_settings">Лента подписок</string>
+    <string name="feed_update_mode">Обновление ленты</string>
+    <string-array name="feed_update_modes">
+        <item>При открытии приложения</item>
+        <item>Вручную (потянуть вниз)</item>
+        <item>Автоматически</item>
+    </string-array>
+    <string name="feed_auto_interval">Автообновление каждые</string>
+    <string-array name="feed_intervals_">
+        <item>15 минут</item>
+        <item>30 минут</item>
+        <item>1 час</item>
+        <item>3 часа</item>
+        <item>6 часов</item>
+        <item>12 часов</item>
+        <item>1 день</item>
+    </string-array>
+    <string name="feed_update_desc">Выберите, когда обновляется лента подписок. В ручном режиме потяните список вниз, чтобы проверить новые видео. В режиме интервала лента обновляется, пока приложение открыто.</string>
+    <string name="feed_refreshing">Обновление ленты…</string>
+    <string name="feed_progress">Загрузка каналов: %1$d / %2$d</string>
+    <string name="feed_pull">Потяните вниз, чтобы обновить</string>
+    <string name="feed_release">Отпустите, чтобы обновить</string>
+    <string name="feed_last_update">Лента обновлена: %s</string>
+    <string name="feed_refresh">Обновить ленту</string>
+    <string name="feed_up_to_date">Лента актуальна</string>
+    <string name="feed_failed_title">Не удалось загрузить некоторые каналы:</string>
+    <string name="hide_popular_feed">Скрыть ленту «Популярное» (только подписки)</string>
+
+    <!-- Subtitles -->
+    <string name="subtitles">Субтитры</string>
+    <string name="subtitles_off">Выключены</string>
+    <string name="subtitles_loading">Загрузка субтитров…</string>
+    <string name="subtitles_error">Не удалось загрузить субтитры. Попробуйте другую дорожку или проверьте соединение.</string>
+    <string name="no_subtitles">Субтитры недоступны</string>
+
+    <!-- Comments -->
+    <string name="comments_error">Не удалось загрузить комментарии.\nНажмите, чтобы повторить.</string>
+    <string name="view_replies">Показать ответы (%1$d)</string>
+    <string name="hide_replies">Скрыть ответы</string>
+    <string name="replies_loading">Загрузка ответов…</string>
+
+    <!-- Channel popular tab -->
+    <string name="no_channel_popular">Не удалось загрузить самые популярные видео канала.</string>
+</resources>

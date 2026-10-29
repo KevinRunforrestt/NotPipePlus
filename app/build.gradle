@@ -1,0 +1,28 @@
+apply plugin: 'com.android.application'
+
+android {
+    compileSdkVersion 25
+    buildToolsVersion "25.0.0"
+    defaultConfig {
+        applicationId "io.github.gohoski.notpipeplus"
+        minSdkVersion 3
+        //noinspection OldTargetApi
+        targetSdkVersion 25
+        versionCode 19
+        versionName "0.4.0"
+        setProperty("archivesBaseName", "notPipePlus-$versionName") //e.g. notPipe-0.1.0-release.apk
+    }
+    buildTypes {
+        release {
+            //Optimizations totally work down to API 1 and result in smaller file size.
+            shrinkResources true //reduces apk size removing unused code
+            minifyEnabled true //increase performance optimizing dex files (obfuscation)
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    lintOptions {
+        disable 'MissingTranslation'
+    }
+}
+
+dependencies {}
