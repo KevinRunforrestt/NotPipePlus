@@ -1,6 +1,6 @@
 # notPipe+
 
-**notPipe+** is a fork of [notPipe](https://github.com/gohoski/notPipe) with extra features, maintained by **Kevin_Runforrestt**.
+**notPipe+** is a fork of [notPipe](https://github.com/gohoski/notPipe) with extra features.
 It is a working YouTube client for **Android 1.5 and above** (minSdk 3 — the same original device range as notPipe itself) utilizing multiple backend APIs. Made with ❤ and longevity in mind. Instead of depending on a single instance that might suddenly fail, the app leverages multiple instances concurrently for maximum reliability.
 
 * Original project: **notPipe** by [gohoski](https://github.com/gohoski) — all credit for the original client, the multi-instance architecture and the bundled NNJSON library goes to him.
@@ -21,7 +21,7 @@ List of supported APIs:
 * [YtAPILegacy](https://github.com/ZendoMusic/yt-api-legacy) (metadata, all qualities, conversion)
 
 ## 📥 Download
-* [GitHub Releases](https://github.com/gohoski/notPipe/releases)
+* [GitHub Releases](https://github.com/KevinRunforrestt/NotPipePlus/releases)
 
 
 ## Features
@@ -87,7 +87,7 @@ This project was built from the ground up to solve these exact issues. Instead o
 5. **Automatic updates of the instances.** The list of the instances is automatically updated and by default loads from http://144.31.189.129/notPipe.json, requiring as less actions from the user as possible.
 
 ## Reporting bugs
-**Report bugs in the [Issues](https://github.com/gohoski/notPipe/issues) tab!** Don't forget to specify which version of Android you encountered the bug on.
+**Report bugs in the [Issues](https://github.com/KevinRunforrestt/NotPipePlus/issues) tab!** Don't forget to specify which version of Android you encountered the bug on.
 
 ## Build
 The project is developed under the following build environment.
