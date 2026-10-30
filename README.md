@@ -7,12 +7,9 @@ It is a working YouTube client for **Android 1.5 and above** (minSdk 3 — the s
 * Fork additions: universal subscriptions import/export, self-healing channel avatars, NewPipe-style subscriptions feed, local playlists, WebVTT subtitles, quality selection fixes, comment replies and more (see [Features](#features)).
 
 
-![notPipe](img/logo.png "Working YouTube for legacy Android devices")
+<img src="img/logo.png" alt="Modern SSL certificates for legacy Android" width="301"/>
 
-![](img/src1.png)
-![](img/src2.png)
-![](img/src3.png)
-
+<img src="img/scr1.png" alt="Screenshot" width="200"/> <img src="img/src2.png" alt="Screenshot" width="200"/> <img src="img/src3.png" alt="Screenshot" width="200"/>
 
 List of supported APIs:
 * [Invidious](https://docs.invidious.io/api/) (metadata, 360p)
