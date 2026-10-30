@@ -16,7 +16,7 @@ List of supported APIs:
 * [YtAPILegacy](https://github.com/ZendoMusic/yt-api-legacy) (metadata, all qualities, conversion)
 
 ## 📥 Download
-* [GitHub Releases](https://github.com/gohoski/notPipe/releases)
+* [GitHub Releases](https://github.com/KevinRunforrestt/NotPipePlus/releases)
 
 
 ## Features
