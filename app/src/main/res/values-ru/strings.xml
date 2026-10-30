@@ -123,6 +123,7 @@
     <string name="latest">Новые</string>
     <string name="popular">Популярные</string>
     <string name="content_unavailable">Контент недоступен</string>
+    <string name="no_internet">Нет подключения к интернету</string>
     <string name="general">Основное</string>
     <string name="force_landscape">Принудительная альбомная ориентация в полноэкранном режиме</string>
     <string name="download_speed">%d КБ/с</string>

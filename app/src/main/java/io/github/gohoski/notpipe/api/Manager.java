@@ -120,7 +120,7 @@ public class Manager {
 
     public Metadata getMetadata() {
         if (metadataInstances.isEmpty()) throw new IllegalStateException("No Metadata instances");
-        return createStatefulFallbackProxy(Metadata.class, metadataInstances);
+        return createStatefulFallbackProxy(Metadata.class, metadataInstances, KEY_METADATA_HOST);
     }
 
     /** One raw Metadata instance without the fallback proxy (optional
@@ -151,12 +151,12 @@ public class Manager {
             return null;
         }
 
-        return createStatefulFallbackProxy(Metadata.class, ytApiList);
+        return createStatefulFallbackProxy(Metadata.class, ytApiList, KEY_POPULAR_HOST);
     }
 
     public ChannelApi getChannelApi() {
         if (channelApiInstances.isEmpty()) throw new IllegalStateException("No ChannelApi instances");
-        return createStatefulFallbackProxy(ChannelApi.class, channelApiInstances);
+        return createStatefulFallbackProxy(ChannelApi.class, channelApiInstances, KEY_CHANNEL_HOST);
     }
 
     public List<Conversion> getConversion() {
@@ -274,6 +274,15 @@ public class Manager {
     private static String hostOf(Metadata m) {
         try {
             return (String) m.getClass().getMethod("getHost").invoke(m);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Same reflection for any pool type (ChannelApi, VideoStream, ...). */
+    private static String hostOf(Object instance) {
+        try {
+            return (String) instance.getClass().getMethod("getHost").invoke(instance);
         } catch (Exception e) {
             return null;
         }
@@ -535,13 +544,37 @@ public class Manager {
      *  of the Activity, re-picking on failure. */
     @SuppressWarnings("unchecked")
     private <T> T createStatefulFallbackProxy(final Class<T> interfaceClass, final List<T> pool) {
+        return createStatefulFallbackProxy(interfaceClass, pool, null);
+    }
+
+    /**
+     * Same proxy with a "sticky winner": when {@code prefsKey} is set, the
+     * first pick prefers the host of the last call that succeeded (same idea
+     * as the caption winner memory). Opening the app then hits a known-good
+     * instance instead of a random one that may be dead and cost a
+     * 10-20 s timeout. A remembered host that has since died simply falls
+     * through to the normal random walk.
+     */
+    @SuppressWarnings("unchecked")
+    private <T> T createStatefulFallbackProxy(final Class<T> interfaceClass, final List<T> pool, final String prefsKey) {
         return (T) Proxy.newProxyInstance(
                 interfaceClass.getClassLoader(),
                 new Class<?>[]{ interfaceClass },
                 new InvocationHandler() {
                     private T currentInstance = null;
+                    /** Only the very first pick consults the memory. */
+                    private boolean firstPick = true;
+
                     private void pickNewInstance() {
                         if (!pool.isEmpty()) {
+                            if (firstPick && prefsKey != null) {
+                                firstPick = false;
+                                T remembered = findByHost(pool, rememberedHost(prefsKey));
+                                if (remembered != null) {
+                                    currentInstance = remembered;
+                                    return;
+                                }
+                            }
                             currentInstance = pool.get(random.nextInt(pool.size()));
                         } else {
                             currentInstance = null;
@@ -561,9 +594,16 @@ public class Manager {
                             }
 
                             try {
-                                return method.invoke(currentInstance, args);
+                                Object result = method.invoke(currentInstance, args);
+                                if (prefsKey != null) {
+                                    rememberHostIfChanged(prefsKey, hostOf(currentInstance));
+                                }
+                                return result;
                             } catch (InvocationTargetException e) {
                                 if (e.getCause() instanceof ContentUnavailableException) {
+                                    // The instance answered: the content
+                                    // genuinely does not exist. The route is
+                                    // healthy - do not switch instances.
                                     throw e.getCause();
                                 }
                                 e.printStackTrace();
@@ -660,6 +700,50 @@ public class Manager {
         }
 
         return false;
+    }
+
+    // ------------------------------------------------------------------
+    // Sticky winner memory (SharedPreferences, tiny)
+    // ------------------------------------------------------------------
+    private static final String INSTANCE_PREFS = "instance_cache";
+    private static final String KEY_METADATA_HOST = "metadata_host";
+    private static final String KEY_CHANNEL_HOST = "channel_host";
+    private static final String KEY_POPULAR_HOST = "popular_host";
+
+    /** The pool entry whose host matches, or null. */
+    private static <T> T findByHost(List<T> pool, String host) {
+        if (host == null || host.length() == 0) return null;
+        for (int i = 0; i < pool.size(); i++) {
+            if (host.equals(hostOf(pool.get(i)))) return pool.get(i);
+        }
+        return null;
+    }
+
+    /** Reads the remembered winner host of one capability. */
+    private static String rememberedHost(String prefsKey) {
+        try {
+            Context ctx = NotPipe.getAppContext();
+            if (ctx != null) {
+                return ctx.getSharedPreferences(INSTANCE_PREFS, 0).getString(prefsKey, null);
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    /** Persists a new winner host; writes only when it actually changed
+     *  (a commit is disk I/O on the request thread). */
+    private static void rememberHostIfChanged(String prefsKey, String host) {
+        if (host == null || host.length() == 0) return;
+        if (host.equals(rememberedHost(prefsKey))) return;
+        try {
+            Context ctx = NotPipe.getAppContext();
+            if (ctx != null) {
+                ctx.getSharedPreferences(INSTANCE_PREFS, 0)
+                        .edit().putString(prefsKey, host).commit();
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     public void reloadInstances() {

@@ -44,10 +44,17 @@ and v2-only signatures need API 24+. Recipe:
    ```bash
    $JDK8/bin/java -jar $SDK/build-tools/25.0.0/lib/apksigner.jar sign \
      --ks notpipeplus.keystore --ks-pass pass:notpipeplus --key-pass pass:notpipeplus \
-     --min-sdk-version 10 --v1-signing-enabled true --v2-signing-enabled false aligned.apk
+     --min-sdk-version 3 --v1-signing-enabled true --v2-signing-enabled false aligned.apk
    ```
 3. Verify: `apksigner verify --print-certs` and check that `META-INF/*.SF` says
    `SHA1-Digest` (not `SHA-256-Digest`).
+
+### Keystore
+The signing key lives in the repo root: `notpipeplus.keystore`, alias `notpipeplus`,
+store AND key password `notpipeplus` (JKS format, RSA 2048, generated 2026-10-29).
+It is NOT secret (public app, self-signed); commit/keep it with the source so update
+builds keep installing over each other. NOTE: this key was regenerated after a
+workspace loss — builds signed with the older lost key need an uninstall first.
 
 ### Android Studio (humans)
 Android Studio 2.3.2 is the historical recommendation (simultaneously old and supported);
@@ -106,7 +113,7 @@ app/src/main/java/io/github/gohoski/notpipe/
 ├── Playlists             # {name, ids[]} entries in internal-storage JSON
 ├── VideoCache            # Last video + resolved stream (single-video memory cache)
 ├── config/               # SharedPreferences-backed Config + ConfigManager singleton
-├── http/                 # HttpClient (timeout/UA/error bodies), HttpRequest+Builder
+├── http/                 # HttpClient (timeout/UA/error bodies/gzip), HttpRequest+Builder
 ├── ui/                   # Adapters + custom views used from the layout XMLs:
 │                         #   AdapterLinearLayout, PullToRefreshLayout, FixedTabHost,
 │                         #   AspectRatioVideoView, AspectRatioImageView,
@@ -114,6 +121,8 @@ app/src/main/java/io/github/gohoski/notpipe/
 ├── util/
 │   ├── ImageLoader       # Global bitmap cache (Hashtable, 30 entries, 3 decoders)
 │   ├── ChannelIconResolver # Process-wide channel-icon cache + background fallback
+│   ├── ConnectivityMonitor # CONNECTIVITY_ACTION watcher: offline->online
+│   │                     #   transitions re-trigger the failed screen
 │   ├── InstancesUpdater  # Fetches the instance lists from a remote URL
 │   ├── SubscriptionsImporter # Universal CSV/JSON/regex subscription parser
 │   └── VttSubtitles      # Minimal WebVTT parser, binary-search cue lookup
@@ -122,6 +131,27 @@ app/src/main/java/io/github/gohoski/notpipe/
 
 ### Things that are the way they are for a reason
 - **NNJSON (`cc.nnproject.json`)** is a bundled third-party library — never modify it.
+- **Offline handling**: `Utils.waitForConnection` waits at most 10 s for a
+  transient drop, then throws `IOException("No internet connection")` (a
+  bounded wait — the old endless one wedged the single Gingerbread
+  AsyncTask thread behind an infinite spinner). `ConnectivityMonitor`
+  (armed in `NotPipe.onCreate`) turns the next offline->online transition
+  into `onConnectionRestored()` on the visible activity, which retries only
+  the loads that FAILED — finished screens are never reloaded. Feed
+  retries use reason `REASON_RECONNECT` (full re-check, silent UI).
+- **Sticky winners**: the Metadata/ChannelApi/Popular fallback proxies
+  remember the host of the last successful call (SharedPreferences
+  `instance_cache`) and try it first on the next proxy creation. A dead
+  remembered host just falls through to the random walk — same idea as
+  the caption winner memory; keep both in sync.
+- **HTTP gzip**: `HttpClient` sends `Accept-Encoding: gzip` and wraps
+  `Content-Encoding: gzip` bodies in a `GZIPInputStream`. Servers that do
+  not compress are unaffected. API 3-era HttpURLConnection does NOT add
+  gzip by itself — do not remove the explicit header.
+- **Channel page parallelism**: the channel metadata (AsyncTask) and the
+  Popular-tab list (raw `ch-popular` thread) load side by side, because
+  two AsyncTasks would serialize onto one worker on Gingerbread. The
+  prefetch result parks in `popularVideos` until `setupTabs()` runs.
 - **Instance pools**: Piped/Invidious serve only 360p (they ignore the quality
   argument); only yt2009/YtApiLegacy instances live in `hqInstances`. Quality selection
   must go through `VideoActivity.instanceServesQuality` / `Manager.getHqInstances`.

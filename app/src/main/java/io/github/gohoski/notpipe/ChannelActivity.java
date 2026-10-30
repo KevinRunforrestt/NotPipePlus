@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.res.Configuration;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Handler;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.Menu;
@@ -39,6 +40,7 @@ import io.github.gohoski.notpipe.data.Channel;
 import io.github.gohoski.notpipe.data.ChannelPlaylist;
 import io.github.gohoski.notpipe.data.VideoInfo;
 import io.github.gohoski.notpipe.ui.VideoAdapter;
+import io.github.gohoski.notpipe.util.ConnectivityMonitor;
 import io.github.gohoski.notpipe.util.ImageLoader;
 
 /**
@@ -47,7 +49,7 @@ import io.github.gohoski.notpipe.util.ImageLoader;
  *  (public playlists, lazy). The header carries the subscribe button in
  *  both orientations.
  */
-public class ChannelActivity extends Activity {
+public class ChannelActivity extends Activity implements ConnectivityMonitor.Listener {
     Metadata api;
     ChannelApi channelApi;
     String channelId;
@@ -91,6 +93,8 @@ public class ChannelActivity extends Activity {
     // layout and re-binds what is already in memory (no new requests).
     boolean tabsSetUp = false;        // setupTabs already ran for this instance
     String currentTabTag = null;    // last selected tab
+    /** Hops worker-thread results back to the UI thread. */
+    private final Handler mainHandler = new Handler();
 
     private void setAdapterForView(AbsListView view, VideoAdapter adapter) {
         if (view instanceof ListView) {
@@ -113,8 +117,19 @@ public class ChannelActivity extends Activity {
         bindChannelHeaderListener();
         bindSubscribeButton();
 
+        // Proxies are cheap to build (no I/O). Creating them up front
+        // lets the popular prefetch below run beside the channel load.
+        try {
+            api = Manager.getInstance().getMetadata();
+            channelApi = Manager.getInstance().getChannelApi();
+        } catch (IllegalStateException ignored) {}
+
         loadChannelTask = new LoadChannelTask();
         loadChannelTask.execute(channelId);
+        // The header and the default "Popular" tab cost one request each:
+        // a raw thread runs them side by side, because Gingerbread would
+        // serialize two AsyncTasks onto one worker (halves the wait).
+        startPopularPrefetch();
     }
 
     /** Channel header tap -> dialog with subscriber count + description. */
@@ -364,6 +379,50 @@ public class ChannelActivity extends Activity {
         loadPopularVideosTask.execute(channelId);
     }
 
+    /** Same request as the Popular tab, but on its own worker thread so
+     *  it races the channel metadata instead of queueing behind it.
+     *  Until the tabs are set up the result only parks itself in
+     *  popularVideos; setupTabs() picks it up when the header is ready. */
+    private void startPopularPrefetch() {
+        if (popularLoading || channelId == null || channelId.length() == 0) return;
+        popularLoading = true;
+        new Thread(new Runnable() {
+            public void run() {
+                final List<VideoInfo> result = fetchChannelVideos(channelId, 1);
+                mainHandler.post(new Runnable() {
+                    public void run() {
+                        if (isDestroyedFlag) return;
+                        popularLoading = false;
+                        popularVideos = result;
+                        if (tabsSetUp) {
+                            displayPopular(result);
+                        }
+                    }
+                });
+            }
+        }, "ch-popular").start();
+    }
+
+    /** getChannelVideos with the ChannelApi fallback, shared by the
+     *  Popular and Videos tabs (sort: 1 = popular, 0 = latest). */
+    private List<VideoInfo> fetchChannelVideos(String id, int sort) {
+        List<VideoInfo> result = null;
+        try {
+            if (api != null) result = api.getChannelVideos(id, sort);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        if ((result == null || result.isEmpty()) && channelApi != null) {
+            try {
+                List<VideoInfo> alt = channelApi.getChannelVideos(id, sort);
+                if (alt != null && !alt.isEmpty()) result = alt;
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+        return result;
+    }
+
     /** Kicks off the background load of this channel's latest uploads. */
     private void startVideosLoad() {
         if (videosLoading || channelId == null || channelId.length() == 0) return;
@@ -550,6 +609,8 @@ public class ChannelActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        // Reload this page's failed loads once the network is back.
+        ConnectivityMonitor.register(this);
         if (forYouAdapter != null) {
             forYouAdapter.notifyDataSetChanged();
         }
@@ -564,6 +625,38 @@ public class ChannelActivity extends Activity {
         // The subscription state may have changed elsewhere — keep the
         // button in sync.
         updateSubscribeButton();
+    }
+
+    /** ConnectivityMonitor: the network was down and is back. Retries
+     *  the loads that ended in an error; finished screens stay as they
+     *  are. */
+    public void onConnectionRestored() {
+        if (isDestroyedFlag || channelId == null) return;
+        // The whole page died (no channel header): full retry, popular
+        // prefetch included.
+        if (channel == null) {
+            if (loadChannelTask == null
+                    || loadChannelTask.getStatus() != AsyncTask.Status.FINISHED) {
+                return; // still running or queued: let it finish
+            }
+            View loading = findViewById(R.id.loading);
+            if (loading != null) loading.setVisibility(View.VISIBLE);
+            loadChannelTask = new LoadChannelTask();
+            loadChannelTask.execute(channelId);
+            startPopularPrefetch();
+            return;
+        }
+        // Header is fine: only the list that is shown and broken retries.
+        if (tabsSetUp && "popular".equals(currentTabTag)
+                && popularVideos == null && !popularLoading) {
+            startPopularVideosLoad();
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        ConnectivityMonitor.unregister(this);
     }
 
     @Override
@@ -653,8 +746,7 @@ public class ChannelActivity extends Activity {
         protected Channel doInBackground(String... strings) {
             try {
                 if (isCancelled()) return null;
-                api = Manager.getInstance().getMetadata();
-                channelApi = Manager.getInstance().getChannelApi();
+                if (api == null) return null;
                 return api.getChannel(strings[0]);
             } catch (ContentUnavailableException e) {
                 e.printStackTrace();
@@ -724,26 +816,8 @@ public class ChannelActivity extends Activity {
 
         @Override
         protected List<VideoInfo> doInBackground(String... strings) {
-            String id = strings[0];
-            List<VideoInfo> result = null;
-            try {
-                result = api.getChannelVideos(id, 1);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-            if (result == null || result.isEmpty()) {
-                if (channelApi != null) {
-                    try {
-                        List<VideoInfo> alt = channelApi.getChannelVideos(id, 1);
-                        if (alt != null && !alt.isEmpty()) {
-                            result = alt;
-                        }
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                }
-            }
-            return result;
+            if (api == null && channelApi == null) return null;
+            return fetchChannelVideos(strings[0], 1);
         }
 
         @Override
@@ -772,22 +846,8 @@ public class ChannelActivity extends Activity {
 
         @Override
         protected List<VideoInfo> doInBackground(String... strings) {
-            String id = strings[0];
-            List<VideoInfo> result = null;
-
-            try {
-                result = api.getChannelVideos(id, 0);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-            if ((result == null || result.isEmpty()) && channelApi != null) {
-                try {
-                    result = channelApi.getChannelVideos(id, 0);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-            return result;
+            if (api == null && channelApi == null) return null;
+            return fetchChannelVideos(strings[0], 0);
         }
 
         @Override

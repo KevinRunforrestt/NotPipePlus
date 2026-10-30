@@ -57,12 +57,63 @@
                 android:layout_width="fill_parent"
                 android:layout_height="fill_parent">
 
-                <!-- Popular tab -->
-                <LinearLayout
+                <!-- Popular tab: content below, centered loading spinner on top -->
+                <FrameLayout
                     android:id="@+id/popular_tab"
-                    android:orientation="vertical"
                     android:layout_width="fill_parent"
                     android:layout_height="fill_parent">
+
+                    <LinearLayout
+                        android:orientation="vertical"
+                        android:layout_width="fill_parent"
+                        android:layout_height="fill_parent">
+
+                        <LinearLayout
+                            android:id="@+id/no_popular"
+                            android:layout_width="fill_parent"
+                            android:layout_height="wrap_content"
+                            android:padding="16dp"
+                            android:background="@drawable/rounded_background"
+                            android:layout_margin="16dp"
+                            android:orientation="vertical"
+                            android:visibility="gone">
+                            <TextView
+                                android:layout_width="fill_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/no_popular"
+                                android:textSize="18sp"
+                                android:textStyle="bold"
+                                android:gravity="center"/>
+                            <TextView
+                                android:layout_width="fill_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="center"
+                                android:text="@string/no_popular_"/>
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/empty_videos"
+                            android:layout_width="fill_parent"
+                            android:layout_height="fill_parent"
+                            android:gravity="center"
+                            android:text="@string/no_videos"
+                            android:textSize="18sp"
+                            android:visibility="gone" />
+
+                        <ListView
+                            android:id="@+id/videos"
+                            android:layout_width="fill_parent"
+                            android:layout_height="fill_parent"
+                            android:scrollingCache="false"
+                            android:cacheColorHint="#00000000"
+                            android:paddingLeft="24dp"
+                            android:paddingRight="24dp"
+                            android:clipToPadding="false"
+                            android:scrollbarStyle="outsideOverlay"
+                            tools:listitem="@layout/item_video"
+                            android:clickable="true"
+                            android:choiceMode="none" />
+                    </LinearLayout>
 
                     <ProgressBar
                         android:id="@+id/loading"
@@ -70,53 +121,7 @@
                         android:layout_height="wrap_content"
                         android:layout_gravity="center"
                         tools:visibility="gone"/>
-
-                    <LinearLayout
-                        android:id="@+id/no_popular"
-                        android:layout_width="fill_parent"
-                        android:layout_height="wrap_content"
-                        android:padding="16dp"
-                        android:background="@drawable/rounded_background"
-                        android:layout_margin="16dp"
-                        android:orientation="vertical"
-                        android:visibility="gone">
-                        <TextView
-                            android:layout_width="fill_parent"
-                            android:layout_height="wrap_content"
-                            android:text="@string/no_popular"
-                            android:textSize="18sp"
-                            android:textStyle="bold"
-                            android:gravity="center"/>
-                        <TextView
-                            android:layout_width="fill_parent"
-                            android:layout_height="wrap_content"
-                            android:gravity="center"
-                            android:text="@string/no_popular_"/>
-                    </LinearLayout>
-
-                    <TextView
-                        android:id="@+id/empty_videos"
-                        android:layout_width="fill_parent"
-                        android:layout_height="fill_parent"
-                        android:gravity="center"
-                        android:text="@string/no_videos"
-                        android:textSize="18sp"
-                        android:visibility="gone" />
-
-                    <ListView
-                        android:id="@+id/videos"
-                        android:layout_width="fill_parent"
-                        android:layout_height="fill_parent"
-                        android:scrollingCache="false"
-                        android:cacheColorHint="#00000000"
-                        android:paddingLeft="24dp"
-                        android:paddingRight="24dp"
-                        android:clipToPadding="false"
-                        android:scrollbarStyle="outsideOverlay"
-                        tools:listitem="@layout/item_video"
-                        android:clickable="true"
-                        android:choiceMode="none" />
-                </LinearLayout>
+                </FrameLayout>
 
                 <!-- Subscriptions tab: content below, centered loading overlay on top -->
                 <FrameLayout

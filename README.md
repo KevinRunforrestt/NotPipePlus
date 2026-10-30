@@ -6,9 +6,8 @@ It is a working YouTube client for **Android 1.5 and above** (minSdk 3 — the s
 * Original project: **notPipe** by [gohoski](https://github.com/gohoski) — all credit for the original client, the multi-instance architecture and the bundled NNJSON library goes to him.
 * Fork additions: universal subscriptions import/export, self-healing channel avatars, NewPipe-style subscriptions feed, local playlists, WebVTT subtitles, quality selection fixes, comment replies and more (see [Features](#features)).
 
-![notPipe](img/logo.png "Working YouTube for legacy Android devices")
 
-<img src="img/scr1.png" alt="Screenshot" width="200"/> <img src="img/scr2.png" alt="Screenshot" width="200"/> <img src="img/scr3.png" alt="Screenshot" width="200"/> <img src="img/scr4.png" alt="Screenshot" width="200"/> <img src="img/scr5.png" alt="Screenshot" width="200"/> <img src="img/scr6.png" alt="Screenshot" width="200"/>
+![notPipe](img/logo.png "Working YouTube for legacy Android devices")
 
 List of supported APIs:
 * [Invidious](https://docs.invidious.io/api/) (metadata, 360p)
@@ -17,7 +16,8 @@ List of supported APIs:
 * [YtAPILegacy](https://github.com/ZendoMusic/yt-api-legacy) (metadata, all qualities, conversion)
 
 ## 📥 Download
-* [GitHub Releases]()
+* [GitHub Releases](https://github.com/gohoski/notPipe/releases)
+
 
 ## Features
 > [!NOTE]

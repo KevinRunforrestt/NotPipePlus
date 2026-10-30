@@ -1,16 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    android:orientation="vertical"
     android:layout_width="fill_parent"
     android:layout_height="fill_parent">
-    <!--layout for phones-->
+    <!--layout for phones: content below, centered loading spinner on top-->
 
-    <ImageView
-        android:id="@+id/banner"
+    <LinearLayout
+        android:orientation="vertical"
         android:layout_width="fill_parent"
-        android:layout_height="wrap_content"
-        android:adjustViewBounds="true"/>
+        android:layout_height="fill_parent">
+
+        <ImageView
+            android:id="@+id/banner"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:adjustViewBounds="true"/>
 
     <LinearLayout
         android:id="@+id/channel"
@@ -74,15 +78,6 @@
             android:textStyle="bold"/>
     </LinearLayout>
 
-    <!-- Moved below the channel info -->
-    <ProgressBar
-        android:id="@+id/loading"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center_horizontal"
-        android:layout_marginTop="16dp"
-        tools:visibility="gone"/>
-
     <io.github.gohoski.notpipe.ui.FixedTabHost
         android:id="@android:id/tabhost"
         android:layout_width="fill_parent"
@@ -104,107 +99,128 @@
                 android:id="@android:id/tabcontent"
                 android:layout_width="fill_parent"
                 android:layout_height="fill_parent">
-                <LinearLayout
+                <FrameLayout
                     android:id="@+id/for_you"
                     android:layout_width="fill_parent"
                     android:layout_height="fill_parent"
-                    android:orientation="vertical"
                     android:visibility="gone"
                     tools:visibility="visible">
+                    <LinearLayout
+                        android:orientation="vertical"
+                        android:layout_width="fill_parent"
+                        android:layout_height="fill_parent">
+                        <TextView
+                            android:id="@+id/no_channel_popular"
+                            android:layout_width="fill_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:text="@string/no_channel_popular"
+                            android:padding="16dp"
+                            android:visibility="gone"/>
+                        <ListView
+                            android:id="@+id/for_you_list"
+                            android:layout_width="fill_parent"
+                            android:layout_height="fill_parent"
+                            android:scrollingCache="false"
+                            android:cacheColorHint="#00000000"
+                            tools:listitem="@layout/item_video_compact"
+                            android:clickable="true"
+                            android:choiceMode="none"
+                            android:visibility="gone"
+                            tools:visibility="visible"/>
+                    </LinearLayout>
                     <ProgressBar
                         android:id="@+id/for_you_loading"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_gravity="center_horizontal"/>
-                    <TextView
-                        android:id="@+id/no_channel_popular"
-                        android:layout_width="fill_parent"
-                        android:layout_height="wrap_content"
-                        android:gravity="center"
-                        android:text="@string/no_channel_popular"
-                        android:padding="16dp"
-                        android:visibility="gone"/>
-                    <ListView
-                        android:id="@+id/for_you_list"
-                        android:layout_width="fill_parent"
-                        android:layout_height="fill_parent"
-                        android:scrollingCache="false"
-                        android:cacheColorHint="#00000000"
-                        tools:listitem="@layout/item_video_compact"
-                        android:clickable="true"
-                        android:choiceMode="none"
-                        android:visibility="gone"
-                        tools:visibility="visible"/>
-                </LinearLayout>
-                <LinearLayout
+                        android:layout_gravity="center"/>
+                </FrameLayout>
+                <FrameLayout
                     android:id="@+id/videos"
                     android:layout_width="fill_parent"
                     android:layout_height="fill_parent"
-                    android:orientation="vertical"
                     android:visibility="gone"
                     tools:visibility="visible">
+                    <LinearLayout
+                        android:orientation="vertical"
+                        android:layout_width="fill_parent"
+                        android:layout_height="fill_parent">
+                        <TextView
+                            android:id="@+id/no_videos"
+                            android:layout_width="fill_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:text="@string/no_videos"
+                            android:padding="16dp"
+                            android:visibility="gone"/>
+                        <ListView
+                            android:id="@+id/videos_list"
+                            android:layout_width="fill_parent"
+                            android:layout_height="fill_parent"
+                            android:scrollingCache="false"
+                            android:cacheColorHint="#00000000"
+                            android:clipToPadding="false"
+                            android:scrollbarStyle="outsideOverlay"
+                            tools:listitem="@layout/item_video_compact"
+                            android:clickable="true"
+                            android:choiceMode="none"
+                            android:visibility="gone"
+                            tools:visibility="visible"/>
+                    </LinearLayout>
                     <ProgressBar
                         android:id="@+id/videos_loading"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_gravity="center_horizontal"/>
-                    <TextView
-                        android:id="@+id/no_videos"
-                        android:layout_width="fill_parent"
-                        android:layout_height="wrap_content"
-                        android:gravity="center"
-                        android:text="@string/no_videos"
-                        android:padding="16dp"
-                        android:visibility="gone"/>
-                    <ListView
-                        android:id="@+id/videos_list"
-                        android:layout_width="fill_parent"
-                        android:layout_height="fill_parent"
-                        android:scrollingCache="false"
-                        android:cacheColorHint="#00000000"
-                        android:clipToPadding="false"
-                        android:scrollbarStyle="outsideOverlay"
-                        tools:listitem="@layout/item_video_compact"
-                        android:clickable="true"
-                        android:choiceMode="none"
-                        android:visibility="gone"
-                        tools:visibility="visible"/>
-                </LinearLayout>
-                <LinearLayout
+                        android:layout_gravity="center"/>
+                </FrameLayout>
+                <FrameLayout
                     android:id="@+id/playlists"
                     android:layout_width="fill_parent"
                     android:layout_height="fill_parent"
-                    android:orientation="vertical"
                     android:visibility="gone"
                     tools:visibility="visible">
+                    <LinearLayout
+                        android:orientation="vertical"
+                        android:layout_width="fill_parent"
+                        android:layout_height="fill_parent">
+                        <TextView
+                            android:id="@+id/no_channel_playlists"
+                            android:layout_width="fill_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:text="@string/no_channel_playlists"
+                            android:padding="16dp"
+                            android:visibility="gone"/>
+                        <ListView
+                            android:id="@+id/playlists_list"
+                            android:layout_width="fill_parent"
+                            android:layout_height="fill_parent"
+                            android:scrollingCache="false"
+                            android:cacheColorHint="#00000000"
+                            android:clipToPadding="false"
+                            android:scrollbarStyle="outsideOverlay"
+                            tools:listitem="@layout/item_channel_playlist"
+                            android:clickable="true"
+                            android:choiceMode="none"
+                            android:visibility="gone"
+                            tools:visibility="visible"/>
+                    </LinearLayout>
                     <ProgressBar
                         android:id="@+id/playlists_loading"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_gravity="center_horizontal"/>
-                    <TextView
-                        android:id="@+id/no_channel_playlists"
-                        android:layout_width="fill_parent"
-                        android:layout_height="wrap_content"
-                        android:gravity="center"
-                        android:text="@string/no_channel_playlists"
-                        android:padding="16dp"
-                        android:visibility="gone"/>
-                    <ListView
-                        android:id="@+id/playlists_list"
-                        android:layout_width="fill_parent"
-                        android:layout_height="fill_parent"
-                        android:scrollingCache="false"
-                        android:cacheColorHint="#00000000"
-                        android:clipToPadding="false"
-                        android:scrollbarStyle="outsideOverlay"
-                        tools:listitem="@layout/item_channel_playlist"
-                        android:clickable="true"
-                        android:choiceMode="none"
-                        android:visibility="gone"
-                        tools:visibility="visible"/>
-                </LinearLayout>
+                        android:layout_gravity="center"/>
+                </FrameLayout>
             </FrameLayout>
         </LinearLayout>
+
     </io.github.gohoski.notpipe.ui.FixedTabHost>
-</LinearLayout>
+    </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/loading"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        tools:visibility="gone"/>
+</FrameLayout>

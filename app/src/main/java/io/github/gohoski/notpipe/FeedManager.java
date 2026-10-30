@@ -54,19 +54,18 @@ public final class FeedManager {
     private static final Object IO_LOCK = new Object();
 
     // ------------------------------------------------------------------
-    // Process-wide update coordinator (rotation-safe)
+    // Process-wide update coordinator (rotation-safe): the in-flight
+    // refresh lives in this singleton, NOT in the activity. The new
+    // activity re-attaches: live progress via the observer, a finished
+    // result via pendingResult.
     // ------------------------------------------------------------------
-    // The in-flight refresh lives in the singleton scope, NOT in the
-    // activity: rotating the phone destroys/recreates MainActivity on
-    // Android 2.3. Here the refresh keeps running through the rotation;
-    // the new activity instance simply re-attaches: it reads the live
-    // progress and receives the result via the observer, or picks it up
-    // from pendingResult if it finished while no activity was attached.
 
     /** Refresh reasons (mirror MainActivity's constants). */
     public static final int REASON_AUTO = 0;
     public static final int REASON_MANUAL = 1;
     public static final int REASON_REBUILD = 2;
+    /** After the network came back: full re-check, silent in the UI. */
+    public static final int REASON_RECONNECT = 3;
 
     /** UI callbacks; every method may be called from the update thread. */
     public interface FeedObserver {
@@ -135,6 +134,19 @@ public final class FeedManager {
         }
     }
 
+    /**
+     * Parks the newest result only: a superseded run can still be winding
+     * down after its replacement already parked a FRESHER result, and the
+     * stale one (a cancelled marker) must never overwrite it.
+     */
+    private static void parkResult(FeedUpdate result, int reason) {
+        synchronized (UPDATE_LOCK) {
+            if (pendingResult != null && pendingResult.seq >= result.seq) return;
+            pendingResult = result;
+            pendingReason = reason;
+        }
+    }
+
     /** Drops a parked result after a live observer applied it. */
     public static void clearPendingResult() {
         synchronized (UPDATE_LOCK) {
@@ -184,15 +196,21 @@ public final class FeedManager {
                         t.printStackTrace();
                     }
                     if (myCancel.get()) {
-                        return; // superseded by a rebuild: result discarded
+                        // Superseded run: still deliver a result so a UI that
+                        // re-attached never waits for a notification (the
+                        // eternal-spinner bug).
+                        FeedUpdate cancelledResult = new FeedUpdate();
+                        cancelledResult.seq = mySeq;
+                        cancelledResult.reason = reason;
+                        cancelledResult.cancelled = true;
+                        parkResult(cancelledResult, reason);
+                        notifyObserversDone(cancelledResult, reason);
+                        return;
                     }
                     if (result == null) result = new FeedUpdate();
                     result.seq = mySeq;
                     result.reason = reason;
-                    synchronized (UPDATE_LOCK) {
-                        pendingResult = result;
-                        pendingReason = reason;
-                    }
+                    parkResult(result, reason);
                     notifyObserversDone(result, reason);
                 }
             }, "feed-update");
@@ -262,6 +280,9 @@ public final class FeedManager {
         public long seq;
         /** Why this refresh ran (REASON_*). */
         public int reason;
+        /** True when the run was cancelled/superseded: the UI must keep
+         *  the screen as-is and never wait for a follow-up from it. */
+        public boolean cancelled;
 
         FeedUpdate() {
             videos = new ArrayList<VideoInfo>();
@@ -393,6 +414,23 @@ public final class FeedManager {
             if (s != null && s[0] != null) subsById.put(s[0], s);
         }
 
+        if (!Utils.hasConnection(NotPipe.getAppContext())) {
+            // Offline: fail fast; ConnectivityMonitor re-triggers the
+            // visible screen on reconnect (REASON_RECONNECT).
+            for (int i = 0; i < outdated.size(); i++) {
+                String[] sub = (String[]) outdated.get(i);
+                r.failedNames.add(FeedLogic.channelName(sub));
+                if (sub != null && sub[0] != null) {
+                    state.put(sub[0], Long.valueOf(
+                            now - (FEED_CHANNEL_STALE_MS - FEED_RETRY_AFTER_FAIL_MS)));
+                }
+            }
+            r.failed = outdated.size();
+            r.videos = FeedLogic.mergeFeed(currentFeed, null, subsById);
+            saveChannelState(state);
+            return r;
+        }
+
         final Map<String, List<VideoInfo>> fetched =
                 Collections.synchronizedMap(new HashMap<String, List<VideoInfo>>());
         final List<String> failedNames = Collections.synchronizedList(new ArrayList<String>());
@@ -428,6 +466,12 @@ public final class FeedManager {
                         vids = null;
                     }
                     if (cancelFlag != null && cancelFlag.get()) return;
+
+                    // RSS rows carry no channel avatar: fill them from the
+                    // stored subscription entry.
+                    if (vids != null && !vids.isEmpty()) {
+                        vids = withAvatar(vids, Subscriptions.getAvatar(channelId));
+                    }
 
                     if (vids != null) {
                         // Route answered (an empty but valid feed is a
@@ -524,23 +568,31 @@ public final class FeedManager {
             }
         }
         // ---- Primary: per-channel RSS through an Invidious instance ----
+        List<VideoInfo> rssFallback = null;
         if (!channelId.startsWith("@")) {
             for (int attempt = 0; attempt < FEED_RSS_ATTEMPTS; attempt++) {
-                if (System.currentTimeMillis() > deadline) return null;
+                if (System.currentTimeMillis() > deadline) break;
                 String base = rotation.next();
                 if (base == null) break; // all instances failed already
                 try {
                     List<VideoInfo> rss = RssFeed.fetch(base, channelId);
-                    if (rss != null) return rss;
+                    if (rss != null) {
+                        // Only a feed WITH view counts wins outright: feed rows
+                        // show views + date only when both exist. A poor feed
+                        // (old Invidious builds omit media:statistics) stays
+                        // as a last resort.
+                        if (hasFeedViews(rss)) return rss;
+                        if (rssFallback == null) rssFallback = rss;
+                    }
                     rotation.markDead(base);
                 } catch (Throwable t) {
-                    // Network error, bot-challenge, dead node: skip this
-                    // instance for the rest of the refresh.
                     rotation.markDead(base);
                 }
             }
         }
         // ---- Fallback: the classic JSON/HTML endpoints ----
+        // The 30 s budget must bound the fallbacks too.
+        if (System.currentTimeMillis() > deadline) return rssFallback;
         List<VideoInfo> channelVideos = null;
         if (api != null) {
             try {
@@ -548,6 +600,7 @@ public final class FeedManager {
             } catch (Exception ignored) {
             }
         }
+        if (System.currentTimeMillis() > deadline) return channelVideos;
         if ((channelVideos == null || channelVideos.isEmpty()) && channelApi != null) {
             try {
                 channelVideos = channelApi.getChannelVideos(channelId, 0);
@@ -558,6 +611,9 @@ public final class FeedManager {
         // "uploads" playlist, which carries NO view counts and NO dates.
         // Prefer the ChannelApi (yt2009) result when the metadata one is
         // that poor.
+        if (System.currentTimeMillis() > deadline) {
+            return channelVideos != null ? channelVideos : rssFallback;
+        }
         if (channelVideos != null && !channelVideos.isEmpty()
                 && channelApi != null && !hasAnyFeedMetadata(channelVideos)) {
             try {
@@ -568,7 +624,7 @@ public final class FeedManager {
             } catch (Exception ignored) {
             }
         }
-        return channelVideos;
+        return channelVideos != null ? channelVideos : rssFallback;
     }
 
     /** True when at least one video of the list has views or a date. */
@@ -580,6 +636,69 @@ public final class FeedManager {
             }
         }
         return false;
+    }
+
+    /** True when at least one video carries a view count. */
+    static boolean hasFeedViews(List<VideoInfo> videos) {
+        for (int i = 0; i < videos.size(); i++) {
+            if (((VideoInfo) videos.get(i)).views > 0) return true;
+        }
+        return false;
+    }
+
+    /** Copies the list filling the channel avatar rows miss (RSS rows carry
+     *  none; the stored subscription avatar is a direct URL). */
+    static List<VideoInfo> withAvatar(List<VideoInfo> vids, String avatar) {
+        if (vids == null || vids.isEmpty() || avatar == null || avatar.length() == 0) return vids;
+        boolean needed = false;
+        for (int i = 0; i < vids.size(); i++) {
+            VideoInfo v = vids.get(i);
+            if (v.channelThumbnail == null || v.channelThumbnail.length() == 0) {
+                needed = true;
+                break;
+            }
+        }
+        if (!needed) return vids;
+        List<VideoInfo> out = new ArrayList<VideoInfo>(vids.size());
+        for (int i = 0; i < vids.size(); i++) {
+            VideoInfo v = vids.get(i);
+            if (v.channelThumbnail != null && v.channelThumbnail.length() > 0) {
+                out.add(v);
+            } else {
+                out.add(new VideoInfo(v.id, v.title, v.thumbnail, v.channel,
+                        avatar, v.channelId, v.duration, v.views, v.publishedAt));
+            }
+        }
+        return out;
+    }
+
+    /** Same, per video, from each channel's subscription record (cache
+     *  rows written before avatars were kept arrive without one). */
+    static List<VideoInfo> fillCachedAvatars(List<VideoInfo> vids) {
+        if (vids == null || vids.isEmpty()) return vids;
+        boolean needed = false;
+        for (int i = 0; i < vids.size(); i++) {
+            VideoInfo v = vids.get(i);
+            if ((v.channelThumbnail == null || v.channelThumbnail.length() == 0)
+                    && v.channelId != null && v.channelId.length() > 0) {
+                needed = true;
+                break;
+            }
+        }
+        if (!needed) return vids;
+        List<VideoInfo> out = new ArrayList<VideoInfo>(vids.size());
+        for (int i = 0; i < vids.size(); i++) {
+            VideoInfo v = vids.get(i);
+            if (v.channelThumbnail != null && v.channelThumbnail.length() > 0
+                    || v.channelId == null || v.channelId.length() == 0) {
+                out.add(v);
+            } else {
+                out.add(new VideoInfo(v.id, v.title, v.thumbnail, v.channel,
+                        Subscriptions.getAvatar(v.channelId), v.channelId,
+                        v.duration, v.views, v.publishedAt));
+            }
+        }
+        return out;
     }
 
     /**

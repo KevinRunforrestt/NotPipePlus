@@ -8,6 +8,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Map;
+import java.util.zip.GZIPInputStream;
 
 import io.github.gohoski.notpipe.BuildConfig;
 import io.github.gohoski.notpipe.NotPipe;
@@ -50,6 +51,13 @@ public class HttpClient {
             for (Map.Entry<String, String> entry : request.getHeaders().entrySet()) {
                 connection.setRequestProperty(entry.getKey(), entry.getValue());
             }
+            // Ask for gzip (API 3-era HttpURLConnection does not add it
+            // by itself): JSON shrinks several-fold, which is most of the
+            // wait on slow links. Servers that cannot compress simply
+            // ignore the header and the body stays plain.
+            if (!request.getHeaders().containsKey("Accept-Encoding")) {
+                connection.setRequestProperty("Accept-Encoding", "gzip");
+            }
 
             if (request.getBody() != null && request.getBody().length() > 0) {
                 connection.setDoOutput(true);
@@ -69,7 +77,13 @@ public class HttpClient {
                     connection.disconnect();
                     throw new VideoTooLongException("Video is too long!");
                 }
-                return new ConnectionInputStream(connection.getInputStream(), connection);
+                InputStream body = connection.getInputStream();
+                // Transparent gzip: wrap only when the server actually
+                // compressed the body, plain responses pass through as-is.
+                if (isGzipEncoded(connection)) {
+                    body = new GZIPInputStream(body);
+                }
+                return new ConnectionInputStream(body, connection);
             } else {
                 InputStream errorStream = connection.getErrorStream();
                 String errorBody = streamToString(errorStream);
@@ -158,6 +172,12 @@ public class HttpClient {
         }
     }
 
+    /** True when the response carries a gzip Content-Encoding. */
+    private static boolean isGzipEncoded(HttpURLConnection connection) {
+        String encoding = connection.getContentEncoding();
+        return encoding != null && encoding.toLowerCase().indexOf("gzip") != -1;
+    }
+
     /**
      * Helper method to convert InputStream to String
      */
@@ -165,7 +185,8 @@ public class HttpClient {
         if (is == null) return "";
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         int nRead;
-        byte[] data = new byte[1024];
+        // 8192 halves the read syscall count of the old 1024 buffer.
+        byte[] data = new byte[8192];
         while ((nRead = is.read(data, 0, data.length)) != -1) {
             buffer.write(data, 0, nRead);
         }

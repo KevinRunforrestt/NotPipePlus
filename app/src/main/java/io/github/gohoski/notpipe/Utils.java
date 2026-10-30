@@ -6,6 +6,7 @@ import android.os.Build;
 
 import android.content.Context;
 import android.content.res.Resources;
+import android.widget.Toast;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -268,14 +269,20 @@ public class Utils {
     }
 
     /**
-     * Blocks the current thread until the internet is available.
-     * Safe to run in AsyncTask doInBackground.
+     * Waits a bounded time for the network to come back after a transient
+     * drop, then fails with a clear IOException (an endless wait used to
+     * wedge the single Gingerbread AsyncTask thread).
      */
     public static void waitForConnection(Context context) throws IOException {
         if (context == null) return;
+        final long deadline = System.currentTimeMillis() + NETWORK_WAIT_MS;
         boolean waited = false;
 
         while (!hasConnection(context)) {
+            if (System.currentTimeMillis() >= deadline) {
+                notifyOffline(context);
+                throw new IOException("No internet connection");
+            }
             waited = true;
             try {
                 Thread.sleep(1000);
@@ -294,6 +301,30 @@ public class Utils {
                 Thread.currentThread().interrupt();
             }
         }
+    }
+
+    /** How long one request may stall waiting for a dropped network. */
+    private static final long NETWORK_WAIT_MS = 10000L;
+
+    /** Toast throttle: one "no internet" toast per burst, not one per request. */
+    private static long lastOfflineToastAt;
+
+    /** Tells the user once (per few seconds) that the network is down. */
+    private static void notifyOffline(Context context) {
+        final Context ctx = context != null ? context.getApplicationContext() : NotPipe.getAppContext();
+        if (ctx == null) return;
+        long now = System.currentTimeMillis();
+        synchronized (Utils.class) {
+            if (now - lastOfflineToastAt < 5000L) return;
+            lastOfflineToastAt = now;
+        }
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(new Runnable() {
+            public void run() {
+                try {
+                    Toast.makeText(ctx, ctx.getString(R.string.no_internet), Toast.LENGTH_SHORT).show();
+                } catch (Exception ignored) {}
+            }
+        });
     }
 
     public static String getHypePlaylist() {

@@ -222,7 +222,35 @@ public class Config {
      * when all instance lists are empty.
      */
     public void applyDefaults() {
-        ytApiLegacyInstances.add("http://45.132.96.44:2823");
+        // Live instances, probed 2026-10-30 against the app's own endpoints
+        // (the old single default was a dead server). The daily refresh
+        // (updateInstancesFromUrl below) keeps the list current; ytapilegacy
+        // has no live instances left, so it stays empty.
+        invidiousInstances.add("http://14.224.215.173:3000");
+        invidiousInstances.add("http://61.221.6.111");
+        invidiousInstances.add("http://160.236.192.102:3000");
+        invidiousInstances.add("http://171.236.180.251:3000");
+        invidiousInstances.add("http://14.225.212.141:3000");
+        invidiousInstances.add("http://nate-stockhaus.amishcrabs.pics");
+        invidiousInstances.add("http://73.26.148.72:3000");
+        invidiousInstances.add("http://74.102.17.26:8203");
+        invidiousInstances.add("http://inv.stappsworld.com");
+        invidiousInstances.add("http://157.254.18.46:14120");
+        invidiousInstances.add("http://invidious.keltechnas.com");
+        invidiousInstances.add("http://inv.tekforge.de");
+
+        yt2009Instances.add("http://87.106.23.41");
+        yt2009Instances.add("http://femboy.email:730");
+
+        pipedInstances.add("http://pipedapi.xorrito.info,http://pipedproxy.xorrito.info");
+        pipedInstances.add("http://167.114.169.34:8081,http://167.114.169.34:8082");
+        pipedInstances.add("http://152.53.31.104:8091/api,http://pp.dfjko.cc:8080");
+        pipedInstances.add("http://152.53.170.32:8091/api,http://45.14.186.180:8082");
+        pipedInstances.add("http://piped-api.freelancingpeter.eu:8081,http://piped-proxy.freelancingpeter.eu:8082");
+        pipedInstances.add("http://pipedapi.mebitek.com,http://pipedproxy.mebitek.com");
+        pipedInstances.add("http://pipedapi.hilles.space,http://124.158.10.214:8383");
+        pipedInstances.add("http://82.24.19.217:8084,http://82.24.19.217:8085");
+        pipedInstances.add("http://pipedapi.stellar.afs.ovh,http://pipedproxy.stellar.afs.ovh");
 
         updateInstancesFromUrl = true;
         instancesUpdateUrl = "http://144.31.189.129/notPipe.json";

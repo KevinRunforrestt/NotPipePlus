@@ -3,6 +3,7 @@
 buildscript {
     repositories {
         maven { url "https://gohoski.github.io/android-legacy-maven/" }
+        maven { url "https://maven-central.storage-download.googleapis.com/maven2" }
         mavenCentral()
     }
     dependencies {
@@ -16,6 +17,7 @@ buildscript {
 allprojects {
     repositories {
         maven { url "https://gohoski.github.io/android-legacy-maven/" }
+        maven { url "https://maven-central.storage-download.googleapis.com/maven2" }
         mavenCentral()
     }
 }

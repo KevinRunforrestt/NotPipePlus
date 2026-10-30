@@ -52,6 +52,18 @@ public final class Subscriptions {
         }
     }
 
+    /** Stored avatar URL of a subscription, or "" when unknown. */
+    public static String getAvatar(String channelId) {
+        if (channelId == null) return "";
+        synchronized (LOCK) {
+            loadIfNeeded();
+            int idx = indexOf(channelId);
+            if (idx == -1) return "";
+            String[] row = subs.get(idx);
+            return row.length > 2 && row[2] != null ? row[2] : "";
+        }
+    }
+
     public static boolean isSubscribed(String channelId) {
         if (channelId == null || channelId.length() == 0) return false;
         synchronized (LOCK) {

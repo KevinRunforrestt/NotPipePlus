@@ -92,6 +92,7 @@
     <string name="no_quality">Selected quality is not available, trying 360p</string>
     <string name="content_unavailable">This content is unavailable</string>
     <string name="metadata_fail">Failed to load video details, please try again</string>
+    <string name="no_internet">No internet connection</string>
     <string name="async_uri">Asynchronous player initialization</string>
     <string name="async_uri_">This may resolve freezing issues on some devices running Android 4.0–4.3. Enable this option if the app freezes for a few seconds before playback begins.</string>
     <string name="sd_card_space">There isn\'t enough free space on the SD card</string>

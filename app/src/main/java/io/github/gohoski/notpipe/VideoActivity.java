@@ -65,10 +65,11 @@ import io.github.gohoski.notpipe.ui.AspectRatioVideoView;
 import io.github.gohoski.notpipe.ui.CommentAdapter;
 import io.github.gohoski.notpipe.ui.VideoAdapter;
 import io.github.gohoski.notpipe.util.ChannelIconResolver;
+import io.github.gohoski.notpipe.util.ConnectivityMonitor;
 import io.github.gohoski.notpipe.util.ImageLoader;
 import io.github.gohoski.notpipe.util.VttSubtitles;
 
-public class VideoActivity extends Activity {
+public class VideoActivity extends Activity implements ConnectivityMonitor.Listener {
     String videoId;
     LinearLayout videoLayout;
     FrameLayout videoFrame;
@@ -917,9 +918,26 @@ public class VideoActivity extends Activity {
         if (loadRelatedTask != null) loadRelatedTask.cancel(true);
     }
 
+    /** ConnectivityMonitor: the network was down and is back. When the
+     *  video metadata never arrived (offline error) the page is retried;
+     *  a page that already plays or shows its info is left untouched. */
+    public void onConnectionRestored() {
+        if (isActivityStopped || isFinishing()) return;
+        if (video != null) return; // metadata already on screen
+        if (loadVideoTask != null
+                && loadVideoTask.getStatus() != AsyncTask.Status.FINISHED) {
+            return; // still running or queued: let it finish
+        }
+        View loading = findViewById(R.id.loading);
+        if (loading != null) loading.setVisibility(View.VISIBLE);
+        loadVideoTask = new LoadVideoTask();
+        loadVideoTask.execute(videoId);
+    }
+
     @Override
     protected void onPause() {
         super.onPause();
+        ConnectivityMonitor.unregister(this);
         stopPositionTracking();
         // No subtitle ticks while not in the foreground.
         stopSubtitleTicker();
@@ -957,6 +975,9 @@ public class VideoActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        // Reconnect watcher: retries a failed metadata load once the
+        // network is back while this screen is the visible one.
+        ConnectivityMonitor.register(this);
         // Resume the subtitle ticker stopped in onPause.
         if (subtitles != null) {
             startSubtitleTicker();

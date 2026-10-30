@@ -46,23 +46,27 @@ import io.github.gohoski.notpipe.ui.AutoCompleteAdapter;
 import io.github.gohoski.notpipe.ui.PullToRefreshLayout;
 import io.github.gohoski.notpipe.ui.VideoAdapter;
 import io.github.gohoski.notpipe.util.ChannelIconResolver;
+import io.github.gohoski.notpipe.util.ConnectivityMonitor;
 import io.github.gohoski.notpipe.util.ImageLoader;
 import io.github.gohoski.notpipe.util.InstancesUpdater;
 
 public class MainActivity extends Activity implements InstancesUpdater.OnInstancesUpdatedListener,
-        FeedManager.FeedObserver {
+        FeedManager.FeedObserver, ConnectivityMonitor.Listener {
     private static final String STATE_SEARCH_QUERY = "search_query";
     private static final String STATE_IS_SEARCH_MODE = "is_search_mode";
+    private static final String STATE_CURRENT_TAB = "current_tab";
 
     /** A feed older than this is refreshed automatically in the
      *  "on app open" mode. */
     private static final long FEED_STALE_MS = 15L * 60L * 1000L;
 
     /** Feed refresh reasons. MANUAL and REBUILD check every channel; AUTO
-     *  only outdated ones. */
+     *  only outdated ones; RECONNECT re-checks everything after the
+     *  network was down, silently. */
     private static final int FEED_REFRESH_AUTO = 0;
     private static final int FEED_REFRESH_MANUAL = 1;
     private static final int FEED_REFRESH_REBUILD = 2;
+    private static final int FEED_REFRESH_RECONNECT = 3;
 
     private VideoAdapter adapter;
     private List<VideoInfo> videos;
@@ -74,6 +78,9 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
     private Config config = ConfigManager.getInstance().getConfig();
     private boolean isSearchMode = false;
     private boolean isDestroyedFlag = false;
+    /** In-flight loads, so a reconnect never stacks a second copy. */
+    private SearchTask searchTask;
+    private PopularTask popularTask;
 
     // Local subscriptions feed ("Subscriptions" tab)
     private TabHost tabHost;
@@ -130,6 +137,8 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         List<VideoInfo> subsFeed;
         boolean feedLoaded;
         long feedLoadedAt;
+        /** Tab the user was on ("popular" / "subs") - restored after rotation. */
+        String currentTab;
     }
 
     @Override
@@ -143,6 +152,9 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         state.subsFeed = this.subsFeed;
         state.feedLoaded = this.feedLoaded;
         state.feedLoadedAt = this.feedLoadedAt;
+        if (tabHost != null) {
+            state.currentTab = tabHost.getCurrentTabTag();
+        }
         return state;
     }
 
@@ -283,7 +295,8 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         if (subsFeed == null && subsCount > 0) {
             FeedLogic.CachedFeed cached = FeedManager.loadCachedFeed();
             if (cached != null && cached.videos != null && !cached.videos.isEmpty()) {
-                subsFeed = cached.videos;
+                // Rows cached by older builds may miss the channel avatar.
+                subsFeed = FeedManager.fillCachedAvatars(cached.videos);
                 feedLoaded = true;
                 feedLoadedAt = cached.loadedAt;
             }
@@ -298,6 +311,17 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
             updateFeedProgress(FeedManager.getProgressCurrent(), FeedManager.getProgressTotal());
         }
         updateSubsViews();
+
+        // Stay on the tab the user was on before rotating.
+        if (tabHost != null && !hidePopular) {
+            String restoreTab = retained != null ? retained.currentTab : null;
+            if (restoreTab == null && savedInstanceState != null) {
+                restoreTab = savedInstanceState.getString(STATE_CURRENT_TAB);
+            }
+            if ("subs".equals(restoreTab)) {
+                tabHost.setCurrentTab(1);
+            }
+        }
 
         listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
@@ -391,7 +415,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
                     View emptyView = findViewById(R.id.empty_videos);
                     if (emptyView != null) emptyView.setVisibility(View.GONE);
                     hideKeyboard();
-                    new SearchTask().execute(query);
+                    runSearch(query);
                 }
             }
         });
@@ -403,7 +427,6 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         }
 
         if (videos == null) {
-            boolean isUpdatingInstances = false;
             if (config.isUpdateInstancesFromUrl()) {
                 Calendar now = Calendar.getInstance();
                 Calendar lastUpdate = Calendar.getInstance();
@@ -418,23 +441,24 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
                 lastUpdate.set(Calendar.SECOND, 0);
                 lastUpdate.set(Calendar.MILLISECOND, 0);
                 if (Math.round((double) ((now.getTimeInMillis() - lastUpdate.getTimeInMillis()) / (24L * 60 * 60 * 1000))) >= config.getUpdateFrequency()) {
-                    isUpdatingInstances = true;
+                    // Background thread now (see InstancesUpdater): content
+                    // below starts loading IMMEDIATELY with the configured
+                    // instances; onInstancesUpdated refetches whatever is
+                    // still empty once the fresh list lands.
                     new InstancesUpdater(this, this).updateInstances();
                 }
             }
 
-            if (!isUpdatingInstances) {
-                if (isSearchMode && searchQuery.getText().toString().trim().length() > 0) {
-                    if (hidePopular) setSearchOverlayVisible(true);
-                    loading.setVisibility(View.VISIBLE);
-                    new SearchTask().execute(searchQuery.getText().toString().trim());
-                } else if (hidePopular) {
-                    // Popular hidden: the subs feed is the home screen.
-                    isSearchMode = false;
-                } else {
-                    isSearchMode = false;
-                    new PopularTask().execute();
-                }
+            if (isSearchMode && searchQuery.getText().toString().trim().length() > 0) {
+                if (hidePopular) setSearchOverlayVisible(true);
+                loading.setVisibility(View.VISIBLE);
+                runSearch(searchQuery.getText().toString().trim());
+            } else if (hidePopular) {
+                // Popular hidden: the subs feed is the home screen.
+                isSearchMode = false;
+            } else {
+                isSearchMode = false;
+                runPopular();
             }
         } else {
             loading.setVisibility(View.GONE);
@@ -679,8 +703,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
             if (r.seq != 0 && r.seq <= lastAppliedFeedSeq) return; // already applied
             lastAppliedFeedSeq = r.seq;
         }
-        // A live observer applied it: drop the parked copy so a later
-        // resume does not re-apply (idempotent for the pending path).
+        // A live observer applied it: drop the parked copy.
         FeedManager.clearPendingResult();
         feedLoading = false;
         hideFeedProgress();
@@ -693,8 +716,21 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
             updateSubsViews();
             return;
         }
-        // Nothing was outdated: the feed is up to date (NewPipe shows
-        // its "feed is up to date" toast for manual refreshes).
+        if (r.cancelled) {
+            // Superseded run: keep the screen as-is; show progress when the
+            // replacement is running, or a tappable error when the screen
+            // is empty - never a silent spinner.
+            if (FeedManager.isUpdating()) {
+                feedLoading = true;
+                updateFeedProgress(FeedManager.getProgressCurrent(), FeedManager.getProgressTotal());
+                updateSubsViews();
+            } else if (subsFeed == null || subsFeed.isEmpty()) {
+                feedError = true;
+                updateSubsViews();
+            }
+            return;
+        }
+        // Nothing was outdated: the feed is up to date.
         if (r.checked == 0) {
             if (reason == FEED_REFRESH_MANUAL) {
                 Toast.makeText(MainActivity.this, R.string.feed_up_to_date, Toast.LENGTH_SHORT).show();
@@ -704,7 +740,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         }
         if (r.videos == null || r.videos.isEmpty()) {
             // Nothing loaded and nothing cached: probably a connection
-            // problem. Do NOT mark the feed as loaded so a retry happens.
+            // problem. Do not mark the feed as loaded so a retry happens.
             feedLoaded = false;
             feedError = true;
             subsFeed = null;
@@ -749,9 +785,8 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         subsAdapter = new VideoAdapter(this,
                 subsListView instanceof GridView ? R.layout.item_video : R.layout.item_video_compact,
                 feed);
-        // Self-healing channel avatars: when the stored URL rotted (its
-        // instance died), the adapter asks this listener for a live
-        // re-resolution; the fresh URL is persisted to disk.
+        // Self-healing avatars: the adapter asks this listener for a live
+        // re-resolution when the stored URL rotted; the fresh one is persisted.
         subsAdapter.setChannelIconListener(new VideoAdapter.ChannelIconListener() {
             public String getResolvedIcon(String channelId) {
                 return ChannelIconResolver.getResolved(channelId);
@@ -793,6 +828,50 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
                 .show();
     }
 
+    /** Runs one search at a time: a running task is cancelled first. */
+    private void runSearch(String query) {
+        if (searchTask != null && searchTask.getStatus() != AsyncTask.Status.FINISHED) {
+            searchTask.cancel(true);
+        }
+        searchTask = new SearchTask();
+        searchTask.execute(query);
+    }
+
+    /** Same single-flight rule for the Popular feed load. */
+    private void runPopular() {
+        if (popularTask != null && popularTask.getStatus() != AsyncTask.Status.FINISHED) {
+            popularTask.cancel(true);
+        }
+        popularTask = new PopularTask();
+        popularTask.execute();
+    }
+
+    /** ConnectivityMonitor: reload whatever failed or never loaded. */
+    public void onConnectionRestored() {
+        if (isDestroyedFlag) return;
+
+        // Subscriptions feed that failed or never loaded: re-check every
+        // channel, silently (no "up to date" toast, no failed dialog).
+        if (Subscriptions.count() > 0 && !feedLoading
+                && (feedError || !feedLoaded || subsFeed == null || subsFeed.isEmpty())) {
+            startFeedLoad(FEED_REFRESH_RECONNECT);
+        }
+
+        if (isSearchMode) {
+            String query = searchQuery.getText().toString().trim();
+            if (query.length() > 0) {
+                if (hidePopular) setSearchOverlayVisible(true);
+                findViewById(R.id.no_popular).setVisibility(View.GONE);
+                findViewById(R.id.loading).setVisibility(View.VISIBLE);
+                runSearch(query);
+            }
+        } else if (!hidePopular && (videos == null || videos.isEmpty())) {
+            findViewById(R.id.no_popular).setVisibility(View.GONE);
+            findViewById(R.id.loading).setVisibility(View.VISIBLE);
+            runPopular();
+        }
+    }
+
     private String extractYouTubeId(String query) {
         String url = query.trim();
         int startIndex;
@@ -827,13 +906,13 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
             if (isSearchMode && searchQuery.getText().toString().trim().length() > 0) {
                 findViewById(R.id.no_popular).setVisibility(View.GONE);
                 findViewById(R.id.loading).setVisibility(View.VISIBLE);
-                new SearchTask().execute(searchQuery.getText().toString().trim());
+                runSearch(searchQuery.getText().toString().trim());
             } else if (hidePopular) {
                 isSearchMode = false;
                 // Popular hidden: nothing to load.
             } else {
                 isSearchMode = false;
-                new PopularTask().execute();
+                runPopular();
             }
         }
     }
@@ -858,7 +937,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
                 View emptyView = findViewById(R.id.empty_videos);
                 if (emptyView != null) emptyView.setVisibility(View.GONE);
                 Toast.makeText(this, R.string.confirm_exit, Toast.LENGTH_SHORT).show();
-                new PopularTask().execute();
+                runPopular();
                 return true;
             } else {
                 finish();
@@ -878,6 +957,9 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
     @Override
     protected void onResume() {
         super.onResume();
+        // Reconnect watcher: reloads failed screens once the network is
+        // back while this activity is the visible one.
+        ConnectivityMonitor.register(this);
         if (adapter != null) {
             adapter.notifyDataSetChanged();
         }
@@ -888,8 +970,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         boolean freshOpen = firstResume;
         firstResume = false;
 
-        // Re-attach to the process-wide feed update first: it survived the
-        // rotation.
+        // Re-attach to the process-wide feed update: it survived the rotation.
         FeedManager.addObserver(this);
         if (FeedManager.isUpdating()) {
             feedLoading = true;
@@ -897,8 +978,8 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         } else {
             feedLoading = false;
         }
-        // A refresh that finished while no activity was attached left its
-        // result parked in the coordinator: apply it now.
+        // A refresh that finished while detached left its result parked:
+        // apply it now.
         FeedManager.FeedUpdate pending = FeedManager.takePendingResult();
         if (pending != null) {
             handleFeedResult(pending, FeedManager.takePendingReason());
@@ -945,6 +1026,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         // coordinator and its result waits in FeedManager for the next
         // attach.
         FeedManager.removeObserver(this);
+        ConnectivityMonitor.unregister(this);
     }
 
     @Override
@@ -954,6 +1036,9 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
             outState.putString(STATE_SEARCH_QUERY, searchQuery.getText().toString());
         }
         outState.putBoolean(STATE_IS_SEARCH_MODE, isSearchMode);
+        if (tabHost != null) {
+            outState.putString(STATE_CURRENT_TAB, tabHost.getCurrentTabTag());
+        }
     }
 
     @Override
@@ -1089,7 +1174,9 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
                 } else {
                     result.error = new Exception("Metadata client not initialized.");
                 }
-            } catch (Exception e) {
+            } catch (Throwable e) {
+                // Throwable: an OutOfMemoryError must surface as a failed
+                // search, not kill the process.
                 result.error = e;
             }
             return result;
@@ -1123,7 +1210,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
 
     private class SearchResult {
         List<VideoInfo> videos;
-        Exception error;
+        Throwable error;
     }
 
     private class PopularTask extends AsyncTask<Void, Void, PopularResult> {
@@ -1140,7 +1227,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
                         result.videos = popularApi.getPopularVideos();
                         // An empty list is not a usable feed: fall through.
                         if (result.videos != null && !result.videos.isEmpty()) return result;
-                    } catch (Exception e) {
+                    } catch (Throwable e) {
                         e.printStackTrace();
                     }
                 }
@@ -1149,7 +1236,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
                 } else {
                     result.error = new Exception("Popular unavailable");
                 }
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 e.printStackTrace();
                 result.error = e;
             }
@@ -1183,6 +1270,6 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
 
     private class PopularResult {
         List<VideoInfo> videos;
-        Exception error;
+        Throwable error;
     }
 }
