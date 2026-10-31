@@ -188,6 +188,16 @@ class YtApiLegacy implements Metadata, VideoStream, Conversion {
         return comments;
     }
 
+    /** No pagination on this frontend: the Manager falls back to another one. */
+    @Override public io.github.gohoski.notpipe.data.SearchPage searchPage(String q, String nextToken) throws IOException {
+        throw new IOException("Search pagination not supported on YtAPILegacy");
+    }
+
+    /** No pagination on this frontend: the Manager falls back to another one. */
+    @Override public CommentsPage getCommentsPage(String id) throws IOException {
+        throw new IOException("Comments pagination not supported on YtAPILegacy");
+    }
+
     @Override
     public String getThumbnail(String id) {
         return baseUrl + "/thumbnail/" + id;

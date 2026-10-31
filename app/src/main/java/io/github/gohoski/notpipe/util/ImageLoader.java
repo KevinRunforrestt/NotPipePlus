@@ -8,6 +8,7 @@ import android.util.Log;
 import android.widget.ImageView;
 
 import io.github.gohoski.notpipe.NotPipe;
+import io.github.gohoski.notpipe.util.ImageRoutes;
 
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -163,10 +164,6 @@ public class ImageLoader {
         private final boolean useCache;
         private final int maxDimPx;
 
-        ImageLoadRunnable(String url, boolean useCache) {
-            this(url, useCache, 0);
-        }
-
         ImageLoadRunnable(String url, boolean useCache, int maxDimPx) {
             this.url = url;
             this.useCache = useCache;
@@ -216,6 +213,24 @@ public class ImageLoader {
                     break;
                 }
             }
+            ImageRoutes.reportResult(url, bmp != null);
+
+            // Self-healing: an image routed through an Invidious base that
+            // this network cannot reach is retried on the next live base
+            // instead of leaving the view blank. The bases are community
+            // servers; from any given network only some of them are
+            // reachable, and one bad pick used to blank every thumbnail of
+            // the session (only the subscriptions feed, whose images come
+            // from the instance that just served its RSS, stayed alive).
+            String attempted = url;
+            for (int alt = 0; alt < ImageRoutes.MAX_ALTERNATIVES && bmp == null; alt++) {
+                String next = ImageRoutes.nextAlternative(attempted);
+                if (next == null) break;
+                attempted = next;
+                bmp = fetchAlternative(attempted);
+                ImageRoutes.reportResult(attempted, bmp != null);
+            }
+
             final Bitmap finalBmp = bmp;
             uiHandler.post(new Runnable() {
                 @Override
@@ -257,6 +272,36 @@ public class ImageLoader {
                     }
                 }
             });
+        }
+
+        /** Single-shot fetch of an alternative URL: the same headers and
+         *  timeouts as the main loop, no retry of its own (the bounded
+         *  alternatives loop in run() is the retry). */
+        private Bitmap fetchAlternative(String u) {
+            try {
+                URL aURL = new URL(u);
+                HttpURLConnection conn = (HttpURLConnection) aURL.openConnection();
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0");
+                conn.setRequestProperty("Accept", "image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5");
+                conn.setRequestProperty("Accept-Language", "ru-RU,ru;q=0.9,en-GB;q=0.8,en;q=0.7");
+                conn.setRequestProperty("Accept-Encoding", "gzip, deflate, br, zstd");
+                conn.setRequestProperty("Referer", "https://www.youtube.com/");
+                conn.setRequestProperty("Sec-Fetch-Storage-Access", "active");
+                conn.setRequestProperty("Sec-Fetch-Dest", "image");
+                conn.setRequestProperty("Sec-Fetch-Mode", "no-cors");
+                conn.setRequestProperty("Sec-Fetch-Site", "cross-site");
+                conn.setRequestProperty("Priority", "u=5, i");
+                conn.setRequestProperty("TE", "trailers");
+                conn.connect();
+                InputStream is = conn.getInputStream();
+                Bitmap bmp = decodeStream(is, maxDimPx);
+                is.close();
+                return bmp;
+            } catch (Throwable t) {
+                return null;
+            }
         }
     }
 

@@ -6,6 +6,7 @@ import java.util.List;
 import io.github.gohoski.notpipe.data.Channel;
 import io.github.gohoski.notpipe.data.ChannelPlaylist;
 import io.github.gohoski.notpipe.data.Comment;
+import io.github.gohoski.notpipe.data.SearchPage;
 import io.github.gohoski.notpipe.data.SubtitleTrack;
 import io.github.gohoski.notpipe.data.Video;
 import io.github.gohoski.notpipe.data.VideoInfo;
@@ -22,11 +23,29 @@ public interface Metadata {
      */
     List<VideoInfo> getPopularVideos() throws IOException;
     List<VideoInfo> search(String q) throws IOException;
+
+    /**
+     * Paginated search (NewPipe-style infinite scroll): first page when
+     * nextToken is null, otherwise the page the token points to.
+     * Implementations that cannot paginate should throw an IOException so
+     * the Manager falls back to another frontend.
+     */
+    SearchPage searchPage(String q, String nextToken) throws IOException;
+
     List<String> searchSuggestions(String q) throws IOException;
 
     Video getVideo(String id) throws IOException;
     List<VideoInfo> getRelated(String id) throws IOException;
     List<Comment> getComments(String id) throws IOException;
+
+    /**
+     * Paginated comments (NewPipe loads every page as you scroll): the
+     * returned page carries the absolute URL of the next one. Implementations
+     * that cannot paginate should throw an IOException so the Manager falls
+     * back to another frontend.
+     */
+    CommentsPage getCommentsPage(String id) throws IOException;
+
     String getThumbnail(String id);
 
     /** This method resolves both @usernames and UC channel IDs! */

@@ -80,7 +80,6 @@
     <string name="video_player_desc"><b>Встроенный плеер</b> воспроизводит видео непосредственно в приложении, используя системный плеер устройства. <b>Внешний плеер</b> открывает видео в отдельном окне, позволяя выбрать плеер (например, MX Player). <i>Если видео не работают, установите MX Player и переключитесь на внешний плеер. Если MX Player недоступен для вашей версии Android или тормозит, попробуйте включить конвертацию ниже.</i></string>
     <string name="video_quality">Качество видео</string>
     <string name="incorrect_url">Введите корректную ссылку</string>
-    <string name="instance_exist">Инстанс уже введён</string>
     <string name="url">Введите URL</string>
     <string name="conversion">Конвертация</string>
     <string name="conversion_">Конвертация поможет, если устройство не поддерживает H.264, а MX Player тормозит или недоступен. Конвертация доступна только с инстансами yt2009 и YtAPILegacy. Необходима SD-карта. При конвертации не пытайтесь просматривать длинные видео. <b>Не включайте, если видео работают нормально.</b></string>
@@ -90,7 +89,6 @@
     <string name="setting_footer">notPipe — клиент YouTube для старых андроидов\n▶ github.com/gohoski/notPipe\n▶ t.me/AppDataApps</string>
     <string name="loading">Загрузка</string>
     <string name="dead_instance">Инстанс %s мёртв, переключаемся</string>
-    <string name="try_again">Попробуйте снова</string>
     <string name="desc">Описание</string>
     <string name="select_ins">Выберите инстанс</string>
     <string name="loading_">(загрузка)</string>
@@ -99,11 +97,9 @@
     <string name="cache">кэш</string>
     <string name="sd_card">Чтобы продолжить, вставьте SD-карту</string>
     <string name="channel">Канал</string>
-    <string name="download">Скачать</string>
     <string name="full_screen">Во весь экран</string>
     <string name="ins_upd">Инстансы обновлены успешно</string>
     <string name="subscribers">%s подписчиков</string>
-    <string name="video_count">Кол-во найденных видео: %d</string>
     <string name="metadata_fail">Не удалось загрузить информацию о видео, повторите попытку позже</string>
     <string name="no_quality">Выбранное качество недоступно, пробуем 360p</string>
     <string name="async_uri">Асинхронная инициализация плеера</string>
@@ -111,7 +107,6 @@
     <string name="sd_card_space">На SD-карте недостаточно свободного места</string>
     <string name="confirm_exit">Для выхода нажмите «Назад»</string>
     <string name="unsupported_format">Данный формат не поддерживается вашим устройством. Попробуйте сменить качество или плеер.</string>
-    <string name="for_you">Для вас</string>
     <string name="hq_long">Обработка %sp может занять некоторое время. Пожалуйста, подождите.</string>
     <string name="experimental_1080">1080p является экспериментальным; пожалуйста, используйте 720p для стабильности</string>
     <string name="no_related">Похожих видео не найдено</string>
@@ -120,7 +115,6 @@
     <string name="videos">Видео</string>
     <string name="long_360">Видео длится более часа, качество снижено до 360p</string>
     <string name="select_quality">Выберите качество видео</string>
-    <string name="latest">Новые</string>
     <string name="popular">Популярные</string>
     <string name="content_unavailable">Контент недоступен</string>
     <string name="no_internet">Нет подключения к интернету</string>
@@ -143,7 +137,6 @@
     <string name="subs_hint">Нажмите на канал, чтобы открыть. Долгое нажатие — отписка.</string>
     <string name="import_subscriptions">Импортировать подписки</string>
     <string name="export_subscriptions">Экспортировать подписки</string>
-    <string name="imported_subscriptions">Импортировано подписок: %d</string>
     <string name="import_error">Не удалось импортировать: файл не читается</string>
     <string name="import_no_channels">В этом файле не найдено ни одного канала.\n\nПоддерживаются: CSV из Google Takeout, CSV/JSON из NewPipe, экспорт notPipe+ — или любой текст со ссылками на каналы.</string>
     <string name="imported_subs_detail">Импортировано новых каналов: %1$d (пропущено дубликатов: %2$d)</string>
@@ -159,12 +152,8 @@
     <string name="playlists">Плейлисты</string>
     <string name="new_playlist">Новый плейлист</string>
     <string name="playlist_name">Название плейлиста</string>
-    <string name="add_to_playlist">Добавить в плейлист</string>
-    <string name="added_to_playlist">Добавлено в %s</string>
     <string name="no_playlists">Плейлистов пока нет.\nСоздайте один со страницы любого видео.</string>
     <string name="delete_playlist_q">Удалить плейлист %s?</string>
-    <string name="playlist_deleted">Плейлист удалён</string>
-    <string name="remove_from_playlist">Убрать из плейлиста</string>
 
     <!-- Channel playlists -->
     <string name="videos_count">%d видео</string>
@@ -213,6 +202,7 @@
     <string name="view_replies">Показать ответы (%1$d)</string>
     <string name="hide_replies">Скрыть ответы</string>
     <string name="replies_loading">Загрузка ответов…</string>
+    <string name="pinned_comment">Закреплено</string>
 
     <!-- Channel popular tab -->
     <string name="no_channel_popular">Не удалось загрузить самые популярные видео канала.</string>

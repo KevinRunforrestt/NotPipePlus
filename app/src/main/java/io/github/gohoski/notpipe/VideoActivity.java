@@ -47,6 +47,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 
+import io.github.gohoski.notpipe.api.CommentsPage;
 import io.github.gohoski.notpipe.api.Conversion;
 import io.github.gohoski.notpipe.api.Manager;
 import io.github.gohoski.notpipe.api.Metadata;
@@ -93,7 +94,21 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
 
     boolean relatedLoaded = false;
     boolean commentsLoaded = false;
+    /** True while the tablet-only dummy tab exists (SDK 11+ tablets):
+     *  hideDummyTab may only run when it was actually added. */
+    private boolean hasDummyTab = false;
     protected boolean isOpencore = NotPipe.SDK < 8; // OpenCORE (Android <2.2) playback bugs need workarounds
+
+    // Comments pagination (NewPipe loads every page as you scroll).
+    /** Absolute URL of the next comments page, or null when exhausted. */
+    private String commentsMoreUrl = null;
+    /** Backend tag of the instance that produced the current comments. */
+    private int commentsBackend = Comment.BACKEND_INVIDIOUS;
+    /** Single-flight guard of the next-page loader. */
+    private boolean commentsMoreLoading = false;
+    /** Tab tapped before the video data arrived; loaded once it does (a
+     *  first tap used to do nothing until the user tapped again). */
+    private String pendingTab = null;
 
     private LoadVideoTask loadVideoTask;
     private ResolveStreamTask resolveStreamTask;
@@ -103,6 +118,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
     private int streamRetryCount = 0;
     private LoadCommentsTask loadCommentsTask;
     private LoadRelatedTask loadRelatedTask;
+    private LoadMoreCommentsTask loadMoreCommentsTask;
 
     // Retry Handler and Runnable to manage automated recovery on I/O errors (1, -1004)
     private Handler retryHandler = new Handler();
@@ -370,6 +386,12 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                         relatedAdapter.loadImagesForView(child);
                     } else {
                         commentsAdapter.loadImagesForView(child);
+                        // The last row scrolled in: the next comments page
+                        // loads (NewPipe's infinite comments).
+                        if (i == activeList.getChildCount() - 1 && commentsLoaded
+                                && commentsMoreUrl != null && !commentsMoreLoading) {
+                            loadMoreComments();
+                        }
                     }
                 }
             }
@@ -916,6 +938,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         if (downloadVideoTask != null) downloadVideoTask.cancel(true);
         if (loadCommentsTask != null) loadCommentsTask.cancel(true);
         if (loadRelatedTask != null) loadRelatedTask.cancel(true);
+        if (loadMoreCommentsTask != null) loadMoreCommentsTask.cancel(true);
     }
 
     /** ConnectivityMonitor: the network was down and is back. When the
@@ -1138,8 +1161,15 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
             }
         }
 
-        hideDummyTab();
+        hideDummyTabIfNeeded();
         triggerLayoutFix(tabHost);
+    }
+
+    /** Hides the dummy tab, but only when it exists: on tablets below
+     *  Android 3.0 no dummy is added and tab 0 is the real "Related"
+     *  tab, which the unconditional hide used to swallow. */
+    private void hideDummyTabIfNeeded() {
+        if (hasDummyTab) hideDummyTab();
     }
 
     private void toggleActionBar(boolean show) {
@@ -1338,6 +1368,8 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                 }
 
                 BaseAdapter adapter = new BaseAdapter() {
+                    private int pad = -1;
+
                     @Override
                     public int getCount() {
                         return dialogItems.size();
@@ -1361,11 +1393,17 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                     @Override
                     public View getView(int position, View convertView, ViewGroup parent) {
                         Object item = dialogItems.get(position);
-                        TextView textView = new TextView(context);
-                        int padding = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12, getResources().getDisplayMetrics());
+                        if (pad < 0) {
+                            pad = (int) TypedValue.applyDimension(
+                                    TypedValue.COMPLEX_UNIT_DIP, 12, getResources().getDisplayMetrics());
+                        }
+                        // Reuse the recycled row: allocating a fresh TextView
+                        // per scroll frame made this dialog stutter horribly.
+                        TextView textView = convertView instanceof TextView
+                                ? (TextView) convertView : new TextView(context);
                         if (item instanceof String) {
                             textView.setText((String) item);
-                            textView.setPadding(padding, padding, padding, padding / 2);
+                            textView.setPadding(pad, pad, pad, pad / 2);
                             textView.setTypeface(null, Typeface.BOLD);
                             textView.setTextColor(Color.WHITE);
                             textView.setBackgroundColor(Color.DKGRAY);
@@ -1373,8 +1411,10 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                         } else {
                             Manager.InstanceInfo info = (Manager.InstanceInfo) item;
                             textView.setText(info.host);
-                            textView.setPadding(padding * 2, padding, padding, padding);
+                            textView.setPadding(pad * 2, pad, pad, pad);
+                            textView.setTypeface(null, Typeface.NORMAL);
                             textView.setTextSize(16);
+                            textView.setBackgroundDrawable(null);
                             if (NotPipe.SDK < 11) textView.setTextColor(Color.BLACK);
                         }
                         return textView;
@@ -1501,13 +1541,14 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
             }));
             hasDummy = true;
         }
+        hasDummyTab = hasDummy;
         tabHost.addTab(tabHost.newTabSpec("related").setIndicator(getString(R.string.related)).setContent(R.id.related));
         tabHost.addTab(tabHost.newTabSpec("comments").setIndicator(getString(R.string.comments)).setContent(R.id.comments));
 
         TabWidget widget = tabHost.getTabWidget();
         if (widget != null) {
             if (isTablet() && NotPipe.SDK >= 11) {
-                hideDummyTab();
+                hideDummyTabIfNeeded();
             } else if (NotPipe.SDK < 11) {
                 int height = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 33f, getResources().getDisplayMetrics());
                 for (int i = 0; i < widget.getChildCount(); i++) {
@@ -1581,7 +1622,12 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
     }
 
     private void loadRelatedVideos() {
-        if (relatedLoaded || video == null) return;
+        if (video == null) {
+            // Video data still loading: run this as soon as it lands.
+            pendingTab = "related";
+            return;
+        }
+        if (relatedLoaded) return;
         TextView noRelatedView = (TextView) findViewById(R.id.no_related);
         if (video.related != null && !video.related.isEmpty()) {
             relatedVideos.clear();
@@ -1602,10 +1648,18 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
     }
 
     private void loadComments() {
-        if (commentsLoaded || video == null) return;
+        if (video == null) {
+            // Video data still loading: run this as soon as it lands, so a
+            // tap on the tab is never lost (it used to do nothing).
+            pendingTab = "comments";
+            commentsLoading.setVisibility(View.VISIBLE);
+            return;
+        }
+        if (commentsLoaded) return;
         if (video.comments != null && !video.comments.isEmpty()) {
             comments.clear();
             comments.addAll(video.comments);
+            sortPinnedFirst(comments);
             commentsAdapter.notifyDataSetChanged();
             commentsLoading.setVisibility(View.GONE);
             commentsLoaded = true;
@@ -1617,6 +1671,32 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
             loadCommentsTask = new LoadCommentsTask();
             loadCommentsTask.execute(videoId);
         }
+    }
+
+    /** Creator-pinned comments stay at the top (NewPipe behavior). */
+    private void sortPinnedFirst(List<Comment> list) {
+        boolean hasPinned = false;
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i).pinned) { hasPinned = true; break; }
+        }
+        if (!hasPinned) return;
+        List<Comment> pinned = new ArrayList<Comment>();
+        List<Comment> rest = new ArrayList<Comment>();
+        for (int i = 0; i < list.size(); i++) {
+            Comment c = list.get(i);
+            if (c.pinned) pinned.add(c); else rest.add(c);
+        }
+        list.clear();
+        list.addAll(pinned);
+        list.addAll(rest);
+    }
+
+    /** Appends the next comments page (fired when the last row scrolls in). */
+    private void loadMoreComments() {
+        if (commentsMoreLoading || commentsMoreUrl == null || commentsMoreUrl.length() == 0) return;
+        commentsMoreLoading = true;
+        loadMoreCommentsTask = new LoadMoreCommentsTask();
+        loadMoreCommentsTask.execute(commentsMoreUrl);
     }
 
     /** Android 4.0-4.3 fix: setVideoURI off the UI thread (async player
@@ -1799,6 +1879,20 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         }
 
         loadRelatedVideos();
+
+        // A tab tapped while the video was still loading now loads at once
+        // (the first tap used to be silently lost).
+        if ("comments".equals(pendingTab)) {
+            pendingTab = null;
+            TabHost pendingHost = (TabHost) findViewById(android.R.id.tabhost);
+            if (pendingHost != null && !"comments".equals(pendingHost.getCurrentTabTag())) {
+                pendingHost.setCurrentTabByTag("comments"); // fires loadComments()
+            } else {
+                loadComments();
+            }
+        } else {
+            pendingTab = null;
+        }
     }
 
     @Override
@@ -2782,33 +2876,49 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         return parsed;
     }
 
-    private class LoadCommentsTask extends AsyncTask<String, Void, List<Comment>> {
+    private class LoadCommentsTask extends AsyncTask<String, Void, CommentsPage> {
         private boolean commentsUnavailable;
 
         @Override
-        protected List<Comment> doInBackground(String... params) {
+        protected CommentsPage doInBackground(String... params) {
             try {
                 if (isCancelled()) return null;
-                return api.getComments(params[0]);
+                // First page + the URL of the next one (paginated comments).
+                return api.getCommentsPage(params[0]);
             } catch (ContentUnavailableException e) {
                 // No/disabled comments (e.g. made for kids): not an error.
                 commentsUnavailable = true;
                 return null;
             } catch (Exception e) {
+                // Frontends without pagination (custom configs): the plain
+                // comments call still works, just without infinite scroll.
+                try {
+                    List<Comment> flat = api.getComments(params[0]);
+                    if (flat != null) {
+                        return new CommentsPage(flat, null, Comment.BACKEND_INVIDIOUS);
+                    }
+                } catch (ContentUnavailableException e2) {
+                    commentsUnavailable = true;
+                } catch (Exception ignored) {
+                }
                 return null;
             }
         }
 
         @Override
-        protected void onPostExecute(List<Comment> result) {
+        protected void onPostExecute(CommentsPage result) {
             if (isCancelled()) return;
             TextView noCommentsView = (TextView) findViewById(R.id.no_comments);
 
             if (result != null) {
                 comments.clear();
-                comments.addAll(result);
+                comments.addAll(result.comments);
+                sortPinnedFirst(comments);
                 commentsAdapter.notifyDataSetChanged();
                 commentsLoaded = true;
+                commentsMoreUrl = result.moreUrl;
+                commentsBackend = result.backend;
+                commentsMoreLoading = false;
 
                 if (noCommentsView != null) {
                     noCommentsView.setText(R.string.no_comments);
@@ -2844,6 +2954,57 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
             commentsLoading.setVisibility(View.GONE);
 
             triggerLayoutFix(commentsList);
+        }
+    }
+
+    /** Fetches and appends the next comments page (infinite comments). */
+    private class LoadMoreCommentsTask extends AsyncTask<String, Void, CommentsPage> {
+        @Override
+        protected CommentsPage doInBackground(String... params) {
+            try {
+                HttpRequest req = new HttpRequest(params[0]);
+                String body = HttpClient.executeToString(req, 15000);
+                return Manager.getInstance().parseMoreComments(commentsBackend, body, videoId);
+            } catch (Exception e) {
+                e.printStackTrace();
+                return null;
+            }
+        }
+
+        @Override
+        protected void onPostExecute(CommentsPage result) {
+            commentsMoreLoading = false;
+            if (isCancelled() || isFinishing()) return;
+            if (result == null) {
+                // Network hiccup: keep the URL so scrolling retries.
+                return;
+            }
+            if (result.comments != null && !result.comments.isEmpty()) {
+                // Skip comments already on screen (backend pages can repeat
+                // a few rows).
+                int added = 0;
+                for (int i = 0; i < result.comments.size(); i++) {
+                    Comment c = result.comments.get(i);
+                    boolean duplicate = false;
+                    for (int j = comments.size() - 1; j >= 0 && j >= comments.size() - 60; j--) {
+                        Comment seen = comments.get(j);
+                        if (seen.channel != null && seen.channel.equals(c.channel)
+                                && seen.content != null && seen.content.equals(c.content)) {
+                            duplicate = true;
+                            break;
+                        }
+                    }
+                    if (!duplicate) {
+                        comments.add(c);
+                        added++;
+                    }
+                }
+                if (added > 0) {
+                    commentsAdapter.notifyDataSetChanged();
+                    triggerLayoutFix(commentsList);
+                }
+            }
+            commentsMoreUrl = result.moreUrl;
         }
     }
 

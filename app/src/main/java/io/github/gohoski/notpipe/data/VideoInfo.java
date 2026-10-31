@@ -3,10 +3,9 @@ package io.github.gohoski.notpipe.data;
 import java.util.Date;
 
 /**
- * Created by Gleb on 09.01.2026.
- * Use -1 for int values if not available from API
+ * One row of a video list. Use -1 for numeric values not available from
+ * the API.
  */
-
 public class VideoInfo {
     public final String title, thumbnail, id, channel, channelThumbnail, duration, channelId;
     public final long views;

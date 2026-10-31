@@ -28,6 +28,7 @@ import io.github.gohoski.notpipe.data.SubtitleTrack;
 import io.github.gohoski.notpipe.http.HttpClient;
 import io.github.gohoski.notpipe.http.HttpRequest;
 import io.github.gohoski.notpipe.http.VideoTooLongException;
+import io.github.gohoski.notpipe.util.InstanceHealth;
 
 /**
  * Manager class for handling multiple API instances with fallback capability.
@@ -123,13 +124,49 @@ public class Manager {
         return createStatefulFallbackProxy(Metadata.class, metadataInstances, KEY_METADATA_HOST);
     }
 
-    /** One raw Metadata instance without the fallback proxy (optional
-     *  single-attempt fallbacks, e.g. channel icons). */
+    /** One raw Metadata instance without the fallback proxy. Prefers a
+     *  healthy, fast one (random among the best) so icon fallbacks do not
+     *  burn their attempts on dead nodes. */
     public Metadata getRandomMetadata() {
         if (metadataInstances == null || metadataInstances.isEmpty()) {
             return null;
         }
-        return metadataInstances.get(random.nextInt(metadataInstances.size()));
+        return pickHealthiest(metadataInstances);
+    }
+
+    /** One raw Invidious instance, health-picked; falls back to the mixed
+     *  pool when no Invidious instance is configured. Used by the channel
+     *  icon resolver: Invidious image URLs are served by the instance
+     *  itself, while Piped ones need the image proxies that some networks
+     *  cannot reach at all. */
+    public Metadata getRandomInvidiousMetadata() {
+        if (metadataInstances != null && !metadataInstances.isEmpty()) {
+            List<Metadata> inv = new ArrayList<Metadata>();
+            for (int i = 0; i < metadataInstances.size(); i++) {
+                if (metadataInstances.get(i) instanceof Invidious) {
+                    inv.add(metadataInstances.get(i));
+                }
+            }
+            if (!inv.isEmpty()) {
+                return pickHealthiest(inv);
+            }
+        }
+        return getRandomMetadata();
+    }
+
+    /** Picks the best-scored entry of the pool, random among equals. */
+    private <T> T pickHealthiest(List<T> pool) {
+        if (pool == null || pool.isEmpty()) return null;
+        long best = Long.MAX_VALUE;
+        for (int i = 0; i < pool.size(); i++) {
+            long s = InstanceHealth.score(hostOf(pool.get(i)));
+            if (s < best) best = s;
+        }
+        List<T> tied = new ArrayList<T>();
+        for (int i = 0; i < pool.size(); i++) {
+            if (InstanceHealth.score(hostOf(pool.get(i))) == best) tied.add(pool.get(i));
+        }
+        return tied.get(random.nextInt(tied.size()));
     }
 
     /** A Metadata proxy over the YtApiLegacy instances, or null when none
@@ -434,6 +471,31 @@ public class Manager {
         return ((Invidious) parser).parseReplies(json);
     }
 
+    /**
+     * Parses a further comments page fetched from the absolute moreUrl a
+     * CommentsPage carried; same backend-tag routing as the replies above.
+     */
+    public CommentsPage parseMoreComments(int backend, String json, String videoId) throws IOException {
+        List<Metadata> pool = new ArrayList<Metadata>(metadataInstances);
+        Metadata parser = null;
+        for (int i = 0; i < pool.size(); i++) {
+            Metadata m = pool.get(i);
+            boolean match = backend == Comment.BACKEND_PIPED
+                    ? (m instanceof Piped) : (m instanceof Invidious);
+            if (match) {
+                parser = m;
+                break;
+            }
+        }
+        if (parser == null) {
+            throw new IOException("No instance of this frontend is configured");
+        }
+        if (backend == Comment.BACKEND_PIPED) {
+            return ((Piped) parser).parseMoreComments(json, videoId);
+        }
+        return ((Invidious) parser).parseMoreComments(json, videoId);
+    }
+
     public String getVideoUrl(String videoId, String quality, int timeout) throws IOException {
         return getVideoUrl(videoId, quality, timeout, null, null);
     }
@@ -450,29 +512,37 @@ public class Manager {
             targetList.add(0, preferredInstance);
             if (targetList.size() > 1) {
                 List<VideoStream> rest = targetList.subList(1, targetList.size());
-                java.util.Collections.shuffle(rest, random);
+                sortByHealthShuffled(rest);
             }
         } else {
-            java.util.Collections.shuffle(targetList, random);
+            sortByHealthShuffled(targetList);
         }
 
         Throwable lastError = null;
 
         for (int i = 0; i < targetList.size(); i++) {
             VideoStream currentInstance = targetList.get(i);
+            long startedAt = System.currentTimeMillis();
             try {
                 String url = currentInstance.getVideoUrl(videoId, quality, timeout);
                 if (successfulInstance != null && successfulInstance.length > 0) {
                     successfulInstance[0] = currentInstance;
                 }
+                InstanceHealth.recordSuccess(currentInstance.getHost(),
+                        System.currentTimeMillis() - startedAt);
                 return url;
             } catch (ContentUnavailableException e) {
                 e.printStackTrace();
+                InstanceHealth.recordSuccess(currentInstance.getHost(),
+                        System.currentTimeMillis() - startedAt); // route answered
                 throw e;
             } catch (FileNotFoundException e) {
+                InstanceHealth.recordSuccess(currentInstance.getHost(),
+                        System.currentTimeMillis() - startedAt); // route answered
                 throw e;
             } catch (Exception e) {
                 if (isDeadInstanceError(e)) {
+                    InstanceHealth.recordFailure(currentInstance.getHost());
                     removeDeadInstance(currentInstance);
                 }
                 lastError = e;
@@ -509,27 +579,35 @@ public class Manager {
                 targetConvList.add(0, (Conversion) preferredInstance);
                 if (targetConvList.size() > 1) {
                     List<Conversion> rest = targetConvList.subList(1, targetConvList.size());
-                    java.util.Collections.shuffle(rest, random);
+                    sortByHealthShuffled(rest);
                 }
             } else {
-                java.util.Collections.shuffle(targetConvList, random);
+                sortByHealthShuffled(targetConvList);
             }
 
             for (int i = 0; i < targetConvList.size(); i++) {
                 Conversion currentInstance = targetConvList.get(i);
+                long startedAt = System.currentTimeMillis();
                 try {
                     String url = currentInstance.getConvUrl(videoId, codec);
                     if (successfulInstance != null && successfulInstance.length > 0 && currentInstance instanceof VideoStream) {
                         successfulInstance[0] = (VideoStream) currentInstance;
                     }
+                    InstanceHealth.recordSuccess(hostOf(currentInstance),
+                            System.currentTimeMillis() - startedAt);
                     return url;
                 } catch (Exception e) {
                     if (e instanceof ContentUnavailableException) {
+                        InstanceHealth.recordSuccess(hostOf(currentInstance),
+                                System.currentTimeMillis() - startedAt);
                         throw (ContentUnavailableException) e;
                     } if (e instanceof VideoTooLongException) {
+                        InstanceHealth.recordSuccess(hostOf(currentInstance),
+                                System.currentTimeMillis() - startedAt);
                         throw (VideoTooLongException) e;
                     } conversionInstances.remove(currentInstance);
                     if (isDeadInstanceError(e)) {
+                        InstanceHealth.recordFailure(hostOf(currentInstance));
                         removeDeadInstance(currentInstance);
                     }
                 }
@@ -538,6 +616,20 @@ public class Manager {
 
         // Fall back to standard stream URLs when conversion is disabled or failed
         return getVideoUrl(videoId, quality, HttpClient.CONVERSION_TIMEOUT, preferredInstance, successfulInstance);
+    }
+
+    /** Health-first ordering with a random shuffle first, so equally
+     *  healthy instances still rotate (stable, health-sorted by score). */
+    private <T> void sortByHealthShuffled(List<T> list) {
+        if (list == null || list.size() <= 1) return;
+        java.util.Collections.shuffle(list, random);
+        java.util.Collections.sort(list, new java.util.Comparator<T>() {
+            public int compare(T a, T b) {
+                long sa = InstanceHealth.score(hostOf(a));
+                long sb = InstanceHealth.score(hostOf(b));
+                return sa < sb ? -1 : (sa > sb ? 1 : 0);
+            }
+        });
     }
 
     /** Creates a dynamic proxy that retains one instance for the lifespan
@@ -550,10 +642,10 @@ public class Manager {
     /**
      * Same proxy with a "sticky winner": when {@code prefsKey} is set, the
      * first pick prefers the host of the last call that succeeded (same idea
-     * as the caption winner memory). Opening the app then hits a known-good
-     * instance instead of a random one that may be dead and cost a
-     * 10-20 s timeout. A remembered host that has since died simply falls
-     * through to the normal random walk.
+     * as the caption winner memory). Picks are health-ordered (see
+     * InstanceHealth): the fast, alive instances serve first, a dead pick
+     * costs no random 10-20 s timeout, and every call feeds the latency
+     * memory so the ordering keeps improving.
      */
     @SuppressWarnings("unchecked")
     private <T> T createStatefulFallbackProxy(final Class<T> interfaceClass, final List<T> pool, final String prefsKey) {
@@ -570,12 +662,12 @@ public class Manager {
                             if (firstPick && prefsKey != null) {
                                 firstPick = false;
                                 T remembered = findByHost(pool, rememberedHost(prefsKey));
-                                if (remembered != null) {
+                                if (remembered != null && !InstanceHealth.isDead(hostOf(remembered))) {
                                     currentInstance = remembered;
                                     return;
                                 }
                             }
-                            currentInstance = pool.get(random.nextInt(pool.size()));
+                            currentInstance = pickHealthiest(pool);
                         } else {
                             currentInstance = null;
                         }
@@ -585,18 +677,29 @@ public class Manager {
                     public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
                         if (currentInstance == null) pickNewInstance();
 
+                        // Cheap local getters are not network probes: timing
+                        // them would poison the latency memory.
+                        String methodName = method.getName();
+                        boolean networkCall = !("getName".equals(methodName)
+                                || "getHost".equals(methodName) || "toString".equals(methodName));
+
                         Throwable lastError = null;
                         List<T> localPool = new ArrayList<T>(pool);
 
                         while (!localPool.isEmpty()) {
                             if (currentInstance == null || !localPool.contains(currentInstance)) {
-                                currentInstance = localPool.get(random.nextInt(localPool.size()));
+                                currentInstance = pickHealthiest(localPool);
                             }
 
+                            long startedAt = System.currentTimeMillis();
                             try {
                                 Object result = method.invoke(currentInstance, args);
                                 if (prefsKey != null) {
                                     rememberHostIfChanged(prefsKey, hostOf(currentInstance));
+                                }
+                                if (networkCall) {
+                                    InstanceHealth.recordSuccess(hostOf(currentInstance),
+                                            System.currentTimeMillis() - startedAt);
                                 }
                                 return result;
                             } catch (InvocationTargetException e) {
@@ -604,10 +707,17 @@ public class Manager {
                                     // The instance answered: the content
                                     // genuinely does not exist. The route is
                                     // healthy - do not switch instances.
+                                    if (networkCall) {
+                                        InstanceHealth.recordSuccess(hostOf(currentInstance),
+                                                System.currentTimeMillis() - startedAt);
+                                    }
                                     throw e.getCause();
                                 }
                                 e.printStackTrace();
                                 lastError = e.getCause();
+                                if (networkCall && isDeadInstanceError(lastError)) {
+                                    InstanceHealth.recordFailure(hostOf(currentInstance));
+                                }
                                 localPool.remove(currentInstance);
 
                                 if (isDeadInstanceError(lastError)) {
@@ -765,8 +875,13 @@ public class Manager {
         public boolean supportsAllQualities;
     }
 
+    /** Snapshot of the playable instances for the picker dialog. A pure
+     *  read: re-initializing here would resurrect instances already
+     *  removed as dead (and rebuild every list on the UI thread). */
     public List<InstanceInfo> videoInstancesInfo() {
-        initializeInstances();
+        if (videoInstances == null || hqInstances == null) {
+            initializeInstances(); // first call before any init
+        }
         List<InstanceInfo> result = new ArrayList<InstanceInfo>();
         List<VideoStream> allKnown = new ArrayList<VideoStream>();
         List<String> processed = new ArrayList<String>();

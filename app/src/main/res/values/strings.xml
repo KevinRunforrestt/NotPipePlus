@@ -64,7 +64,6 @@
     <string name="video_player_desc">The <b>internal player</b> plays videos directly within the app using the system\'s built-in player. The <b>external player</b> opens the video in a separate app, letting you choose your preferred player (e.g., MX Player). <i>If videos do not play, please install MX Player and switch to the external player. If MX Player isn\'t available or videos are lagging, try using <b>conversion</b> below instead.</i></string>
     <string name="stream_playback">Stream playback</string>
     <string name="stream_playback_desc">If disabled, videos will be downloaded to the SD card before playback, which sometimes can improve stability.</string>
-    <string name="instance_exist">Instance already exists</string>
     <string name="incorrect_url">Please enter a correct URL</string>
     <string name="url">Enter URL</string>
     <string name="updating_instances">Updating instances</string>
@@ -76,7 +75,6 @@
     <string name="loading">Loading</string>
     <string name="about_">notPipe+ — a fork of notPipe with extra features.\nFork by Kevin_Runforrestt · original app by gohoski\n▶ github.com/gohoski/notPipe\n▶ t.me/AppDataApps\n\nLicensed under the WTFPL. See www.wtfpl.net for more details.\nThe NNJSON library used in this project is licensed under the MIT License provided below.</string>
     <string name="dead_instance">Dead instance %s, switching</string>
-    <string name="try_again">Try again</string>
     <string name="select_ins">Select instance</string>
     <string name="desc">Description</string>
     <string name="loading_">(loading)</string>
@@ -85,9 +83,7 @@
     <string name="sd_card">To continue, please insert an SD card</string>
     <string name="ins_upd">Instances updated successfully</string>
     <string name="subscribers">%s subscribers</string>
-    <string name="video_count">Number of videos found: %d</string>
     <string name="full_screen">Full screen</string>
-    <string name="download">Download</string>
     <string name="channel">Channel</string>
     <string name="no_quality">Selected quality is not available, trying 360p</string>
     <string name="content_unavailable">This content is unavailable</string>
@@ -103,13 +99,11 @@
     <string name="no_related">No related videos found</string>
     <string name="experimental_1080">1080p is experimental; please use 720p for stability</string>
     <string name="long_360">Video is longer than an hour, switching to 360p</string>
-    <string name="for_you">For you</string>
     <string name="videos">Videos</string>
     <string name="hq_long">Processing %sp may take a moment. Please wait.</string>
     <string name="select_quality">Select video quality</string>
     <string name="general">General</string>
     <string name="force_landscape">Force landscape in full-screen</string>
-    <string name="latest">Latest</string>
     <string name="popular">Popular</string>
     <string name="download_speed">%d KB/s</string>
     <string name="download_progress_percent">%1$d%% (%2$d KB/s)</string>
@@ -128,7 +122,6 @@
     <string name="subs_hint">Tap a channel to open it. Long-press to unsubscribe.</string>
     <string name="import_subscriptions">Import subscriptions</string>
     <string name="export_subscriptions">Export subscriptions</string>
-    <string name="imported_subscriptions">Imported %d subscriptions</string>
     <string name="import_error">Import failed: could not read the file</string>
     <string name="import_no_channels">No channels found in this file.\n\nSupported: Google Takeout CSV, NewPipe CSV/JSON, notPipe+ export — or any text file containing channel IDs.</string>
     <string name="imported_subs_detail">Imported %1$d new channels (%2$d duplicates skipped)</string>
@@ -144,12 +137,8 @@
     <string name="playlists">Playlists</string>
     <string name="new_playlist">New playlist</string>
     <string name="playlist_name">Playlist name</string>
-    <string name="add_to_playlist">Add to playlist</string>
-    <string name="added_to_playlist">Added to %s</string>
     <string name="no_playlists">No playlists yet.\nCreate one from any video page.</string>
     <string name="delete_playlist_q">Delete playlist %s?</string>
-    <string name="playlist_deleted">Playlist deleted</string>
-    <string name="remove_from_playlist">Remove from playlist</string>
 
     <!-- Channel playlists -->
     <string name="videos_count">%d videos</string>
@@ -198,7 +187,10 @@
     <string name="view_replies">View %1$d replies</string>
     <string name="hide_replies">Hide replies</string>
     <string name="replies_loading">Loading replies…</string>
+    <string name="pinned_comment">Pinned</string>
 
     <!-- Channel popular tab -->
     <string name="no_channel_popular">Could not load the channel\'s most popular videos.</string>
+
+    <!-- Search results -->
 </resources>

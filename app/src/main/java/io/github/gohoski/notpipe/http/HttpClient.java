@@ -4,7 +4,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Map;
@@ -57,17 +56,6 @@ public class HttpClient {
             // ignore the header and the body stays plain.
             if (!request.getHeaders().containsKey("Accept-Encoding")) {
                 connection.setRequestProperty("Accept-Encoding", "gzip");
-            }
-
-            if (request.getBody() != null && request.getBody().length() > 0) {
-                connection.setDoOutput(true);
-                if (!request.getHeaders().containsKey("Content-Type"))
-                    connection.setRequestProperty("Content-Type", "application/json");
-                byte[] postData = request.getBody().getBytes("UTF-8");
-                connection.setFixedLengthStreamingMode(postData.length);
-                OutputStream os = connection.getOutputStream();
-                os.write(postData);
-                os.flush(); os.close();
             }
 
             int status = connection.getResponseCode();

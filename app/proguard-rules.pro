@@ -19,3 +19,10 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# hostOf()/removeDeadInstance()/removeByHost() reach getHost() through
+# Class.getMethod("getHost"): the member NAME must survive minification,
+# or dead-instance pruning and the health/latency memory key on null.
+-keepclassmembers class io.github.gohoski.notpipe.api.** {
+    public java.lang.String getHost();
+    public java.lang.String getName();
+}

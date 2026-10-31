@@ -13,11 +13,13 @@ import io.github.gohoski.notpipe.Utils;
 import io.github.gohoski.notpipe.data.Channel;
 import io.github.gohoski.notpipe.data.ChannelPlaylist;
 import io.github.gohoski.notpipe.data.Comment;
+import io.github.gohoski.notpipe.data.SearchPage;
 import io.github.gohoski.notpipe.data.SubtitleTrack;
 import io.github.gohoski.notpipe.data.Video;
 import io.github.gohoski.notpipe.data.VideoInfo;
 import io.github.gohoski.notpipe.http.HttpClient;
 import io.github.gohoski.notpipe.http.HttpRequest;
+import io.github.gohoski.notpipe.util.ImageRoutes;
 
 /**
  * Created by Gleb on 05.06.2026.
@@ -34,21 +36,53 @@ class Piped implements Metadata, VideoStream {
         return replaceAll(replaceAll(baseUrl, "https://", ""), "http://", "");
     }
 
-    /** Video thumbnail served through the instance image proxy. */
+    /** Video thumbnail: routed through an Invidious instance image route
+     *  (the Piped image proxies are unreachable from some networks, which
+     *  blanked every thumbnail outside the subscriptions feed). When no
+     *  Invidious instance is configured the thumbnail falls back to the
+     *  original notPipe form: the image proxy paired with this instance. */
     private String thumbUrl(String videoId) {
-        return thumbUrl(videoId);
+        String routed = ImageRoutes.videoThumb(videoId);
+        if (routed.length() > 0) return routed;
+        return proxyUrl + "/vi/" + videoId + "/mqdefault.jpg?host=i.ytimg.com&rewrite=false";
     }
 
-    /** Avatar URL routed through the image proxy (webp -> jpg). */
+    /** Avatar URL through an Invidious /ggpht image route (webp -> jpg);
+     *  empty when the row carried a JSON-null avatar. Without Invidious
+     *  instances the avatar falls back to the paired Piped image proxy
+     *  (original notPipe form, also upgraded to jpg). */
     private String avatarUrl(String raw) {
-        return Utils.parseUrl(proxyUrl, replaceAll(raw, "-no-rw?host=", "-no-rj?host=") + "&rewrite=false");
+        if (raw == null || raw.length() == 0) return "";
+        String routed = ImageRoutes.avatar(raw);
+        if (routed.length() > 0) return routed;
+        return Utils.parseUrl(proxyUrl, upgradeAvatarToJpeg(raw) + "&rewrite=false");
     }
 
-    /** Comment avatar through the proxy: comment rows advertise webp
-     *  more often than other rows, so both suffixes are upgraded to jpg. */
+    /** Comment avatar through an Invidious /ggpht route, upgraded to
+     *  jpg the same way; same paired-proxy fallback as avatarUrl. */
     private String commentAvatarUrl(String raw) {
         if (raw == null || raw.length() == 0) return null;
-        return Utils.parseUrl(proxyUrl, replaceAll(replaceAll(raw, "-no-rw?host=", "-no-rj?host="), "-rw?host=", "-rj?host=") + "&rewrite=false");
+        String routed = ImageRoutes.avatar(raw);
+        if (routed.length() > 0) return routed;
+        return Utils.parseUrl(proxyUrl, upgradeAvatarToJpeg(raw) + "&rewrite=false");
+    }
+
+    /** Upgrades the webp format flag ("-rw") of a proxied avatar URL to
+     *  jpeg ("-rj"): Android 2.3 cannot decode WebP. The flag sits right
+     *  before "?host=" — the classic "...-no-rw?host=" form and the newer
+     *  "...-no-rw-mo?host=" one (channel search thumbnails) — so the
+     *  base64 body of the URL is never touched. */
+    private static String upgradeAvatarToJpeg(String raw) {
+        int hostAt = raw.indexOf("?host=");
+        if (hostAt == -1) return raw;
+        String head = raw.substring(0, hostAt);
+        if (head.endsWith("-rw-mo")) {
+            return head.substring(0, head.length() - 6) + "-rj-mo" + raw.substring(hostAt);
+        }
+        if (head.endsWith("-rw")) {
+            return head.substring(0, head.length() - 3) + "-rj" + raw.substring(hostAt);
+        }
+        return raw;
     }
 
     /**
@@ -133,6 +167,44 @@ class Piped implements Metadata, VideoStream {
         return videos;
     }
 
+    /**
+     * Paginated search: the first page answers with an opaque nextpage
+     * token; further pages come from /nextpage/search with it.
+     */
+    @Override
+    public SearchPage searchPage(String q, String nextToken) throws IOException {
+        HttpRequest req;
+        if (nextToken == null || nextToken.length() == 0) {
+            req = new HttpRequest.Builder(baseUrl, "/search")
+                    .addParam("q", q).addParam("filter", "videos").build();
+        } else {
+            req = new HttpRequest.Builder(baseUrl, "/nextpage/search")
+                    .addParam("nextpage", nextToken)
+                    .addParam("q", q).addParam("filter", "videos").build();
+        }
+        JSONObject json = JSON.getObject(HttpClient.executeToString(req));
+        JSONArray arr = json.getArray("items");
+        List<VideoInfo> videos = new ArrayList<VideoInfo>();
+        for (int i = 0; i < arr.size(); i++) {
+            try {
+                JSONObject j = arr.getObject(i);
+                String url = j.getString("url");
+                if (url == null || !url.startsWith("/watch")) continue;
+                String videoId = url.substring(9);
+                videos.add(new VideoInfo(videoId, j.getString("title"),
+                        thumbUrl(videoId), j.getString("uploaderName"),
+                        avatarUrl(j.getNullableString("uploaderAvatar")),
+                        j.getString("uploaderUrl").substring(9), Utils.formatDuration(j.getInt("duration")),
+                        j.getLong("views"), new Date(j.getLong("uploaded"))));
+            } catch (Throwable ignored) {
+                // Skip a malformed row, keep the rest.
+            }
+        }
+        String next = json.getNullableString("nextpage");
+        if (videos.isEmpty()) next = null; // exhausted
+        return new SearchPage(videos, next);
+    }
+
     @Override
     public List<String> searchSuggestions(String q) throws IOException {
         HttpRequest req = new HttpRequest.Builder(baseUrl, "/suggestions").addParam("query", q).build();
@@ -181,31 +253,20 @@ class Piped implements Metadata, VideoStream {
 
     @Override
     public List<Comment> getComments(String id) throws IOException {
+        return getCommentsPage(id).comments;
+    }
+
+    /**
+     * Paginated comments: the first page carries the nextpage token of the
+     * next one; pinned comments ("pinned" on the row) arrive first and are
+     * badged like NewPipe does.
+     */
+    @Override
+    public CommentsPage getCommentsPage(String id) throws IOException {
         HttpRequest req = new HttpRequest(baseUrl, "/comments/" + id);
         JSONObject json = JSON.getObject(HttpClient.executeToString(req));
-        // Newer Piped builds answer with {"comments":[],...,"disabled":true}
-        // for videos where YouTube disabled comments: that is a definitive
-        // "no comments", not an error, so return the empty list as is.
-        if (json.has("error")) {
-            String error = json.getString("error");
-            if (error != null && error.length() > 0
-                    && (error.toLowerCase().contains("disabled") || error.toLowerCase().contains("unavailable"))) {
-                return new ArrayList<Comment>();
-            }
-            // Other errors (rate limits, broken extraction): let the Manager
-            // retry with a different instance / frontend.
-            throw new IOException("Comments error: " + error);
-        }
-        JSONArray arr = json.getArray("comments");
-        List<Comment> comments = new ArrayList<Comment>();
-        for (int i = 0; i < arr.size(); i++) {
-            JSONObject j = arr.getObject(i);
-            try {
-                comments.add(parseCommentRow(j, id));
-            } catch (JSONException ignored) {
-                // Skip a malformed comment row, keep the rest.
-            }
-        }
+        checkCommentsError(json);
+        List<Comment> comments = parseCommentRows(json.getArray("comments"), id);
         // A positive advertised count with zero extracted rows means this
         // instance failed the extraction: let the Manager move on.
         if (comments.isEmpty() && !json.getBoolean("disabled", false)) {
@@ -217,7 +278,65 @@ class Piped implements Metadata, VideoStream {
                 throw new IOException("Comments extraction failed on this instance");
             }
         }
+        String moreUrl = null;
+        String nextpage = json.getNullableString("nextpage");
+        if (nextpage != null && nextpage.length() > 0 && !comments.isEmpty()) {
+            moreUrl = buildCommentsUrl(id, nextpage);
+        }
+        return new CommentsPage(comments, moreUrl, Comment.BACKEND_PIPED);
+    }
+
+    /** Structured error handling shared by the comments routes. */
+    private void checkCommentsError(JSONObject json) throws IOException {
+        if (!json.has("error")) return;
+        String error = json.getString("error");
+        if (error != null && error.length() > 0
+                && (error.toLowerCase().contains("disabled") || error.toLowerCase().contains("unavailable"))) {
+            throw new ContentUnavailableException(error);
+        }
+        if (error != null && error.length() > 0) {
+            throw new IOException("Comments error: " + error);
+        }
+    }
+
+    /** Absolute URL of a further comments/replies page (?nextpage=...). */
+    private String buildCommentsUrl(String videoId, String token) {
+        try {
+            return baseUrl + "/comments/" + videoId
+                    + "?nextpage=" + java.net.URLEncoder.encode(token, "UTF-8");
+        } catch (java.io.UnsupportedEncodingException ignored) {
+            return baseUrl + "/comments/" + videoId + "?nextpage=" + token;
+        }
+    }
+
+    /** Rows of a comments page (first page and further pages share the schema). */
+    private List<Comment> parseCommentRows(JSONArray arr, String videoId) throws IOException {
+        List<Comment> comments = new ArrayList<Comment>();
+        for (int i = 0; i < arr.size(); i++) {
+            JSONObject j = arr.getObject(i);
+            try {
+                comments.add(parseCommentRow(j, videoId));
+            } catch (JSONException ignored) {
+                // Skip a malformed comment row, keep the rest.
+            }
+        }
         return comments;
+    }
+
+    /**
+     * Parses a further comments page (?nextpage=...); same schema as the
+     * first page. Called by Manager when the UI scrolls to the end.
+     */
+    CommentsPage parseMoreComments(String body, String videoId) throws IOException {
+        JSONObject root = JSON.getObject(body);
+        checkCommentsError(root);
+        List<Comment> rows = parseCommentRows(root.getArray("comments"), videoId);
+        String moreUrl = null;
+        String nextpage = root.getNullableString("nextpage");
+        if (nextpage != null && nextpage.length() > 0 && !rows.isEmpty()) {
+            moreUrl = buildCommentsUrl(videoId, nextpage);
+        }
+        return new CommentsPage(rows, moreUrl, Comment.BACKEND_PIPED);
     }
 
     /**
@@ -245,16 +364,12 @@ class Piped implements Metadata, VideoStream {
         String repliesPage = j.getNullableString("repliesPage");
         String repliesUrl = null;
         if (repliesPage != null && repliesPage.length() > 0) {
-            try {
-                repliesUrl = baseUrl + "/comments/" + videoId
-                        + "?nextpage=" + java.net.URLEncoder.encode(repliesPage, "UTF-8");
-            } catch (java.io.UnsupportedEncodingException ignored) {
-                repliesUrl = baseUrl + "/comments/" + videoId + "?nextpage=" + repliesPage;
-            }
+            repliesUrl = buildCommentsUrl(videoId, repliesPage);
         }
         Comment c = new Comment(author, avatar, text,
                 Utils.parseRelativeDate(j.getString("commentedTime")), j.getString("commentorUrl").substring(9),
                 replyCount, repliesUrl, Comment.BACKEND_PIPED);
+        c.pinned = j.getBoolean("pinned", false);
         return c;
     }
 
@@ -455,7 +570,7 @@ class Piped implements Metadata, VideoStream {
             } catch(Exception e) { e.printStackTrace(); }
         }
         return new Channel(json.getString("id"), json.getString("name"), thumbnail,
-                Utils.parseUrl(proxyUrl, replaceAll(replaceAll(json.getString("bannerUrl"), "w2560", "w900"), "-rw?host=", "-rj?host=") + "&rewrite=false"),
+                ImageRoutes.avatar(replaceAll(json.getString("bannerUrl"), "w2560", "w900")),
                 json.getString("description"), json.getInt("subscriberCount"), videos);
     }
 
@@ -485,9 +600,8 @@ class Piped implements Metadata, VideoStream {
         return videos;
     }
 
-    /**
-     * Helper to parse Piped's HTML description safely and allocation-free.
-     */
+    /** Strips HTML from a Piped description: <br> to newline, links become
+     *  "text (url)", everything else is dropped. */
     private static String cleanHtml(String html) {
         if (html == null) return null;
 
@@ -510,7 +624,7 @@ class Piped implements Metadata, VideoStream {
                 break;
             }
 
-            // Case-insensitive comparisons matching starting tags directly within parent string to avoid allocations
+            // Case-insensitive tag matching directly on the parent string
             if (html.regionMatches(true, tagStart, "<br", 0, 3)) {
                 sb.append("\n");
                 i = tagEnd + 1;
@@ -557,9 +671,7 @@ class Piped implements Metadata, VideoStream {
         return decodeHtmlEntities(sb.toString());
     }
 
-    /**
-     * Extracts an attribute from within a bounded HTML tag string, allocation-free.
-     */
+    /** Value of one attribute inside a bounded tag, or null. */
     private static String extractAttribute(String html, int start, int end, String attr) {
         String attrMatch = attr + "=";
         int idx = indexOfIgnoreCase(html, attrMatch, start, end);
@@ -594,9 +706,7 @@ class Piped implements Metadata, VideoStream {
         return null;
     }
 
-    /**
-     * Determines if the anchor's inner text is a literal representation of a URL.
-     */
+    /** True when the anchor text is a literal URL (or was truncated to one). */
     private static boolean isUrlOrTruncated(String text) {
         String lower = text.toLowerCase();
         if (lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("www.")) {
@@ -615,9 +725,7 @@ class Piped implements Metadata, VideoStream {
         return false;
     }
 
-    /**
-     * Safe HTML entity decoding using highly efficient custom replaceAll implementation.
-     */
+    /** Decodes the common HTML entities. */
     private static String decodeHtmlEntities(String text) {
         if (text == null) return null;
         text = replaceAll(text, "&amp;", "&");
@@ -629,10 +737,7 @@ class Piped implements Metadata, VideoStream {
         return text;
     }
 
-    /**
-     * High-performance, memory-friendly non-regex replacement engine for Java 1.5+.
-     * Resolves major performance penalties encountered in legacy standard String.replace.
-     */
+    /** Non-regex replace: String.replace allocates heavily on Dalvik. */
     private static String replaceAll(String src, String target, String replacement) {
         if (src == null || target == null || replacement == null || target.length() == 0) {
             return src;
@@ -654,9 +759,7 @@ class Piped implements Metadata, VideoStream {
         return sb.toString();
     }
 
-    /**
-     * Allocation-free Case-Insensitive search utility within specified boundaries.
-     */
+    /** Case-insensitive indexOf bounded to [start, end). */
     private static int indexOfIgnoreCase(String src, String target, int start, int end) {
         int targetLen = target.length();
         int max = end - targetLen;

@@ -55,6 +55,7 @@ public class CommentAdapter extends ArrayAdapter<Comment> {
             holder.date = (TextView) row.findViewById(R.id.date);
             holder.channelThumb = (ImageView) row.findViewById(R.id.channel_thumbnail);
             holder.repliesToggle = (TextView) row.findViewById(R.id.replies_toggle);
+            holder.pinnedBadge = (TextView) row.findViewById(R.id.pinned_badge);
             row.setTag(holder);
         } else {
             holder = (ViewHolder) row.getTag();
@@ -64,6 +65,11 @@ public class CommentAdapter extends ArrayAdapter<Comment> {
         holder.channelTitle.setText(comment.channel);
         holder.content.setText(comment.content);
         holder.date.setText(Utils.formatTimeAgo(context, comment.publishedAt));
+
+        // NewPipe-style "Pinned" badge on creator-pinned comments.
+        if (holder.pinnedBadge != null) {
+            holder.pinnedBadge.setVisibility(comment.pinned ? View.VISIBLE : View.GONE);
+        }
 
         // Replies render indented under their parent, NewPipe-style.
         int leftPad = (int) (comment.isReply ? 26f * context.getResources().getDisplayMetrics().density : 0f);
@@ -152,6 +158,7 @@ public class CommentAdapter extends ArrayAdapter<Comment> {
         TextView content;
         TextView date;
         TextView repliesToggle;
+        TextView pinnedBadge;
         ImageView channelThumb;
         Comment comment;
         boolean imagesLoaded; // Tracks if we already triggered the load for this specific view

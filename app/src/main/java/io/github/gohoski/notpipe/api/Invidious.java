@@ -15,6 +15,7 @@ import cc.nnproject.json.JSONObject;
 import io.github.gohoski.notpipe.data.Channel;
 import io.github.gohoski.notpipe.data.ChannelPlaylist;
 import io.github.gohoski.notpipe.data.Comment;
+import io.github.gohoski.notpipe.data.SearchPage;
 import io.github.gohoski.notpipe.data.SubtitleTrack;
 import io.github.gohoski.notpipe.data.Video;
 import io.github.gohoski.notpipe.data.VideoInfo;
@@ -157,6 +158,36 @@ class Invidious implements Metadata, VideoStream {
         } return videos;
     }
 
+    /** Paginated search: Invidious uses a plain page number (2, 3, ...). */
+    @Override public SearchPage searchPage(String q, String nextToken) throws IOException {
+        int page = 1;
+        if (nextToken != null && nextToken.length() > 0) {
+            try { page = Integer.parseInt(nextToken); } catch (NumberFormatException e) { page = 1; }
+        }
+        HttpRequest req = new HttpRequest.Builder(baseUrl, "/api/v1/search")
+                .addParam("q", q).addParam("type", "video").addParam("page", String.valueOf(page)).build();
+        JSONArray json = JSON.getArray(HttpClient.executeToString(req));
+        List<VideoInfo> videos = new ArrayList<VideoInfo>();
+        for (int i = 0; i < json.size(); i++) {
+            try {
+                JSONObject j = json.getObject(i);
+                if (!"video".equals(j.getString("type"))) continue;
+                videos.add(new VideoInfo(
+                        j.getString("videoId"), j.getString("title"),
+                        videoThumbUrl(j),
+                        j.getString("author"),
+                        authorThumbUrl(j),
+                        j.getString("authorId"), Utils.formatDuration(j.getInt("lengthSeconds")),
+                        j.getLong("viewCount"), new Date(j.getLong("published") * 1000L)
+                ));
+            } catch (JSONException ignored) {
+                // Skip a malformed row, keep the rest.
+            }
+        }
+        if (videos.isEmpty() && page > 1) return new SearchPage(videos, null); // exhausted
+        return new SearchPage(videos, String.valueOf(page + 1));
+    }
+
     @Override public List<String> searchSuggestions(String q) throws IOException {
         HttpRequest req = new HttpRequest.Builder(baseUrl, "/api/v1/search/suggestions").addParam("q",q).build();
         JSONArray json = JSON.getObject(HttpClient.executeToString(req)).getArray("suggestions");
@@ -208,6 +239,16 @@ class Invidious implements Metadata, VideoStream {
     }
 
     @Override public List<Comment> getComments(String id) throws IOException {
+        return getCommentsPage(id).comments;
+    }
+
+    /**
+     * Paginated comments: the first page carries the top-level
+     * continuation token of the next one (Invidious schema). Pinned
+     * comments ("isPinned" on modern builds, "pinned" on older ones)
+     * arrive first and are badged like NewPipe does.
+     */
+    @Override public CommentsPage getCommentsPage(String id) throws IOException {
         HttpRequest req = new HttpRequest(baseUrl, "/api/v1/comments/"+id);
         JSONObject json = JSON.getObject(HttpClient.executeToString(req));
         // Propagate structured errors instead of swallowing them: several
@@ -226,16 +267,7 @@ class Invidious implements Metadata, VideoStream {
                 throw new IOException("Comments error: " + error);
             }
         } catch (JSONException ignored) {}
-        JSONArray arr = json.getArray("comments");
-        List<Comment> comments = new ArrayList<Comment>();
-        for (int i = 0; i < arr.size(); i++) {
-            JSONObject j = arr.getObject(i);
-            try {
-                comments.add(parseCommentRow(j, id));
-            } catch (JSONException ignored) {
-                // Skip a malformed comment row instead of losing the whole list.
-            }
-        }
+        List<Comment> comments = parseCommentRows(json.getArray("comments"), id);
         // A positive advertised count with zero extracted rows means this
         // instance was bot-challenged: throw so the Manager tries another.
         long commentCount = -1;
@@ -245,7 +277,57 @@ class Invidious implements Metadata, VideoStream {
         if (comments.isEmpty() && commentCount > 0) {
             throw new IOException("Comments extraction failed on this instance");
         }
+        String moreUrl = null;
+        String continuation = json.getNullableString("continuation");
+        if (continuation != null && continuation.length() > 0 && !comments.isEmpty()) {
+            try {
+                moreUrl = baseUrl + "/api/v1/comments/" + id
+                        + "?continuation=" + URLEncoder.encode(continuation, "UTF-8");
+            } catch (java.io.UnsupportedEncodingException ignored) {
+                moreUrl = baseUrl + "/api/v1/comments/" + id + "?continuation=" + continuation;
+            }
+        }
+        return new CommentsPage(comments, moreUrl, Comment.BACKEND_INVIDIOUS);
+    }
+
+    /** Rows of a comments page (reused by getCommentsPage and parseMoreComments). */
+    private List<Comment> parseCommentRows(JSONArray arr, String videoId) throws IOException {
+        List<Comment> comments = new ArrayList<Comment>();
+        for (int i = 0; i < arr.size(); i++) {
+            JSONObject j = arr.getObject(i);
+            try {
+                comments.add(parseCommentRow(j, videoId));
+            } catch (JSONException ignored) {
+                // Skip a malformed comment row instead of losing the whole list.
+            }
+        }
         return comments;
+    }
+
+    /**
+     * Parses a further comments page (?continuation=...); same schema as
+     * the first page. Called by Manager when the UI scrolls to the end.
+     */
+    CommentsPage parseMoreComments(String body, String videoId) throws IOException {
+        JSONObject root = JSON.getObject(body);
+        try {
+            String error = root.getString("error");
+            if (error != null && error.length() > 0) {
+                throw new IOException("Comments page error: " + error);
+            }
+        } catch (JSONException ignored) {}
+        List<Comment> rows = parseCommentRows(root.getArray("comments"), videoId);
+        String moreUrl = null;
+        String continuation = root.getNullableString("continuation");
+        if (continuation != null && continuation.length() > 0 && !rows.isEmpty()) {
+            try {
+                moreUrl = baseUrl + "/api/v1/comments/" + videoId
+                        + "?continuation=" + URLEncoder.encode(continuation, "UTF-8");
+            } catch (java.io.UnsupportedEncodingException ignored) {
+                moreUrl = baseUrl + "/api/v1/comments/" + videoId + "?continuation=" + continuation;
+            }
+        }
+        return new CommentsPage(rows, moreUrl, Comment.BACKEND_INVIDIOUS);
     }
 
     /**
@@ -260,6 +342,8 @@ class Invidious implements Metadata, VideoStream {
                 j.getString("content"), published > 0 ? new Date(published * 1000L) : null,
                 j.getString("authorId"));
         c.backend = Comment.BACKEND_INVIDIOUS;
+        // Pinned flag: modern builds say "isPinned", older ones "pinned".
+        c.pinned = j.getBoolean("isPinned", j.getBoolean("pinned", false));
         c.replyCount = j.getInt("replyCount", 0);
         // Modern builds: {replyCount, continuation}.
         JSONObject repliesObj = null;

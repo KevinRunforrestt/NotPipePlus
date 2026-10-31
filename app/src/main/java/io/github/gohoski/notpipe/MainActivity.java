@@ -32,7 +32,6 @@ import android.widget.TabHost;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
@@ -41,6 +40,7 @@ import io.github.gohoski.notpipe.api.Manager;
 import io.github.gohoski.notpipe.api.Metadata;
 import io.github.gohoski.notpipe.config.Config;
 import io.github.gohoski.notpipe.config.ConfigManager;
+import io.github.gohoski.notpipe.data.SearchPage;
 import io.github.gohoski.notpipe.data.VideoInfo;
 import io.github.gohoski.notpipe.ui.AutoCompleteAdapter;
 import io.github.gohoski.notpipe.ui.PullToRefreshLayout;
@@ -81,6 +81,11 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
     /** In-flight loads, so a reconnect never stacks a second copy. */
     private SearchTask searchTask;
     private PopularTask popularTask;
+
+    // Infinite search (NewPipe-style): the token of the next results page
+    // and the single-flight guard of the page loader.
+    private String searchNextToken = null;
+    private boolean searchMoreLoading = false;
 
     // Local subscriptions feed ("Subscriptions" tab)
     private TabHost tabHost;
@@ -139,6 +144,8 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         long feedLoadedAt;
         /** Tab the user was on ("popular" / "subs") - restored after rotation. */
         String currentTab;
+        /** Next search page token, so pagination survives a rotation. */
+        String searchNextToken;
     }
 
     @Override
@@ -155,6 +162,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         if (tabHost != null) {
             state.currentTab = tabHost.getCurrentTabTag();
         }
+        state.searchNextToken = searchNextToken;
         return state;
     }
 
@@ -281,6 +289,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
             subsFeed = retained.subsFeed;
             feedLoaded = retained.feedLoaded;
             feedLoadedAt = retained.feedLoadedAt;
+            searchNextToken = retained.searchNextToken;
         } else if (savedInstanceState != null) {
             isSearchMode = savedInstanceState.getBoolean(STATE_IS_SEARCH_MODE, false);
         }
@@ -330,6 +339,22 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
                 Intent intent = new Intent(MainActivity.this, VideoActivity.class);
                 intent.putExtra("ID", ((VideoInfo) parent.getItemAtPosition(position)).id);
                 startActivity(intent);
+            }
+        });
+
+        // Infinite search: when the user nears the end of the results, the
+        // next page loads and appends (NewPipe's onScroll behavior).
+        listView.setOnScrollListener(new AbsListView.OnScrollListener() {
+            @Override
+            public void onScrollStateChanged(AbsListView view, int scrollState) {
+            }
+
+            @Override
+            public void onScroll(AbsListView view, int firstVisible, int visibleCount, int totalCount) {
+                if (!isSearchMode || searchMoreLoading || searchNextToken == null) return;
+                if (totalCount > 0 && firstVisible + visibleCount >= totalCount - 3) {
+                    loadMoreSearchResults(searchQuery.getText().toString().trim());
+                }
             }
         });
 
@@ -833,8 +858,17 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         if (searchTask != null && searchTask.getStatus() != AsyncTask.Status.FINISHED) {
             searchTask.cancel(true);
         }
+        searchNextToken = null;
+        searchMoreLoading = false;
         searchTask = new SearchTask();
         searchTask.execute(query);
+    }
+
+    /** Loads the next search page and appends it (infinite search). */
+    private void loadMoreSearchResults(String query) {
+        if (searchMoreLoading || searchNextToken == null || query.length() == 0) return;
+        searchMoreLoading = true;
+        new SearchMoreTask().execute(query, searchNextToken);
     }
 
     /** Same single-flight rule for the Popular feed load. */
@@ -1165,19 +1199,33 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
     }
 
     private class SearchTask extends AsyncTask<String, Void, SearchResult> {
+        private String query;
+
         @Override
         protected SearchResult doInBackground(String... params) {
+            query = params[0];
             SearchResult result = new SearchResult();
+            if (metadata == null) {
+                result.error = new Exception("Metadata client not initialized.");
+                return result;
+            }
             try {
-                if (metadata != null) {
-                    result.videos = metadata.search(params[0]);
-                } else {
-                    result.error = new Exception("Metadata client not initialized.");
-                }
+                // Paginated first page; the token of page 2 keeps the
+                // infinite scroll going (NewPipe-style).
+                SearchPage page = metadata.searchPage(params[0], null);
+                result.videos = page.videos;
+                result.nextToken = page.nextToken;
             } catch (Throwable e) {
-                // Throwable: an OutOfMemoryError must surface as a failed
-                // search, not kill the process.
-                result.error = e;
+                // Frontends without pagination (custom configs): the plain
+                // search still works, just without infinite scroll.
+                try {
+                    result.videos = metadata.search(params[0]);
+                    result.nextToken = null;
+                } catch (Throwable e2) {
+                    // Throwable: an OutOfMemoryError must surface as a failed
+                    // search, not kill the process.
+                    result.error = e2;
+                }
             }
             return result;
         }
@@ -1193,6 +1241,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
                 if (emptyView != null) emptyView.setVisibility(View.GONE);
             } else if (result.videos != null) {
                 videos = result.videos;
+                searchNextToken = result.nextToken;
                 adapter = new VideoAdapter(MainActivity.this, R.layout.item_video, videos);
                 if (listView != null) {
                     setAdapterForView(listView, adapter);
@@ -1208,9 +1257,46 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         }
     }
 
+    /** Appends one further search page to the on-screen results. */
+    private class SearchMoreTask extends AsyncTask<String, Void, SearchPage> {
+        @Override
+        protected SearchPage doInBackground(String... params) {
+            try {
+                if (metadata != null) {
+                    return metadata.searchPage(params[0], params[1]);
+                }
+            } catch (Throwable e) {
+                e.printStackTrace();
+            }
+            return null;
+        }
+
+        @Override
+        protected void onPostExecute(SearchPage page) {
+            searchMoreLoading = false;
+            if (isDestroyedFlag || page == null) return;
+            if (!isSearchMode || videos == null || adapter == null) return;
+            // Skip videos already on screen (a repeated page token).
+            for (int i = 0; i < page.videos.size(); i++) {
+                VideoInfo v = page.videos.get(i);
+                boolean duplicate = false;
+                for (int j = 0; j < videos.size(); j++) {
+                    if (videos.get(j).id != null && videos.get(j).id.equals(v.id)) {
+                        duplicate = true;
+                        break;
+                    }
+                }
+                if (!duplicate) videos.add(v);
+            }
+            searchNextToken = page.nextToken;
+            adapter.notifyDataSetChanged();
+        }
+    }
+
     private class SearchResult {
         List<VideoInfo> videos;
         Throwable error;
+        String nextToken;
     }
 
     private class PopularTask extends AsyncTask<Void, Void, PopularResult> {

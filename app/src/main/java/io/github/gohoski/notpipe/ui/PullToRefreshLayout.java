@@ -4,7 +4,7 @@ import android.content.Context;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
-import android.widget.AbsListView;
+import android.view.ViewConfiguration;
 import android.widget.AdapterView;
 import android.widget.FrameLayout;
 import android.widget.TextView;
@@ -18,8 +18,11 @@ import io.github.gohoski.notpipe.R;
  * the target list while the finger drags, snaps back when released below
  * the threshold and fires the refresh above it.
  *
- * Manual refresh is available in every feed mode (NewPipe refreshes all
- * channels on its manual gesture).
+ * The gesture only takes over clearly vertical drags (dy must lead dx by
+ * the touch slop, like SwipeRefreshLayout): the wide landscape grid made
+ * every slightly-downward swipe — including diagonal scrolls — trigger the
+ * pull, which is why the gesture felt broken in horizontal. It works the
+ * same in both orientations now.
  */
 public class PullToRefreshLayout extends FrameLayout {
 
@@ -38,7 +41,8 @@ public class PullToRefreshLayout extends FrameLayout {
     private TextView header;
     private boolean refreshing = false;
     private boolean pulling = false;
-    private float downY;
+    private float downX, downY;
+    private int touchSlopPx;
     private int triggerPx;
     private int headerHeight = 0;
 
@@ -54,16 +58,25 @@ public class PullToRefreshLayout extends FrameLayout {
 
     private void init(Context context) {
         triggerPx = (int) (TRIGGER_DIP * getResources().getDisplayMetrics().density);
+        touchSlopPx = Math.max(ViewConfiguration.get(context).getScaledTouchSlop(), 8);
         header = new TextView(context);
         header.setText(R.string.feed_pull);
         header.setTextSize(14);
         header.setGravity(android.view.Gravity.CENTER);
         header.setBackgroundColor(0xAA2B2B2B);
         header.setVisibility(View.GONE);
-        // Added LAST so it draws ON TOP of the target list: the indicator
-        // grows over the first rows while the finger drags (no translation
-        // API on Gingerbread — the list itself stays put).
         addView(header, new LayoutParams(LayoutParams.FILL_PARENT, 0));
+    }
+
+    /** XML children are inflated after init(): reorder so the header (added
+     *  first in init) draws ON TOP of the target list — the indicator grows
+     *  over the first rows while the finger drags. */
+    @Override
+    protected void onFinishInflate() {
+        super.onFinishInflate();
+        if (header != null) {
+            bringChildToFront(header);
+        }
     }
 
     /** The scrollable whose top overscroll drives the gesture. */
@@ -101,22 +114,31 @@ public class PullToRefreshLayout extends FrameLayout {
         return first == null || first.getTop() >= 0;
     }
 
+    /** True while this MOVE is a clearly vertical downward drag. */
+    private boolean isVerticalPull(float dx, float dy) {
+        return dy > touchSlopPx && dy > Math.abs(dx) + touchSlopPx / 2;
+    }
+
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
         if (refreshing || listener == null) return false;
         switch (ev.getAction()) {
             case MotionEvent.ACTION_DOWN:
+                downX = ev.getX();
                 downY = ev.getY();
                 pulling = false;
                 break;
             case MotionEvent.ACTION_MOVE:
-                if (!pulling && isTargetAtTop()) {
-                    float dy = ev.getY() - downY;
-                    if (dy > 8) {
-                        pulling = true;
-                        return true; // own the gesture from now on
-                    }
+                if (pulling) return true; // gesture already ours
+                if (isTargetAtTop() && isVerticalPull(ev.getX() - downX, ev.getY() - downY)) {
+                    pulling = true;
+                    downY = ev.getY(); // distance measured from the take-over
+                    return true; // own the gesture from now on
                 }
+                break;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                pulling = false;
                 break;
         }
         return false;
@@ -127,11 +149,10 @@ public class PullToRefreshLayout extends FrameLayout {
         if (refreshing || listener == null) return true;
         switch (ev.getAction()) {
             case MotionEvent.ACTION_MOVE:
-                if (isTargetAtTop() || pulling) {
+                if (pulling) {
                     float dy = ev.getY() - downY;
                     if (dy > 0) {
                         setHeaderHeight((int) (dy * DAMP));
-                        pulling = true;
                         return true;
                     }
                     setHeaderHeight(0);

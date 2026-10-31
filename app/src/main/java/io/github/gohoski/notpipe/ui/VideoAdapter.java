@@ -26,6 +26,9 @@ public class VideoAdapter extends ArrayAdapter<VideoInfo> {
     private boolean isInChannelActivity;
     private ChannelIconListener iconListener;
 
+    /** Avatar views are small: decode at a fraction of the source size. */
+    private static final int AVATAR_MAX_DIM = 80;
+
     public interface ChannelIconListener {
         String getResolvedIcon(String channelId);
         void onRequestFallbackIcon(String channelId);
@@ -51,12 +54,14 @@ public class VideoAdapter extends ArrayAdapter<VideoInfo> {
 
     @Override
     public View getView(int position, View convertView, ViewGroup parent) {
+        final VideoInfo video = getItem(position);
+
         ViewHolder holder;
         View row = convertView;
 
         boolean isLazyLoading = parent instanceof AdapterLinearLayout;
 
-        if (row == null) {
+        if (row == null || !(row.getTag() instanceof ViewHolder)) {
             LayoutInflater inflater = ((Activity) context).getLayoutInflater();
             row = inflater.inflate(layoutResource, parent, false);
             holder = new ViewHolder();
@@ -69,8 +74,6 @@ public class VideoAdapter extends ArrayAdapter<VideoInfo> {
         } else {
             holder = (ViewHolder) row.getTag();
         }
-
-        final VideoInfo video = getItem(position);
 
         if (layoutResource == R.layout.item_video_compact && (video.views <= 0 || video.publishedAt == null)) {
             holder.videoTitle.setMaxLines(3);
@@ -172,13 +175,16 @@ public class VideoAdapter extends ArrayAdapter<VideoInfo> {
                 @Override
                 public void onFail() {
                     if (iconListener != null && holder.video.channelId != null && holder.video.channelId.length() > 0) {
+                        // getResolvedIcon returns null once a parked failure
+                        // cooled down, so this retries after the cooldown
+                        // instead of giving up for the whole session.
                         String resolved = iconListener.getResolvedIcon(holder.video.channelId);
                         if (resolved == null) {
                             iconListener.onRequestFallbackIcon(holder.video.channelId);
                         }
                     }
                 }
-            });
+            }, AVATAR_MAX_DIM);
         }
     }
 

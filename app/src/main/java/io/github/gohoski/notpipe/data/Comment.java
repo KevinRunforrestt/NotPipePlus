@@ -6,7 +6,8 @@ import java.util.List;
 /**
  * One comment row, NewPipe-style: a top-level comment may carry a reply
  * count and a continuation to fetch its replies, which the UI expands and
- * collapses on demand (NewPipe's CommentsRepliesInfoItem).
+ * collapses on demand (NewPipe's CommentsRepliesInfoItem), and may be
+ * pinned by the creator (shown first with a "Pinned" badge, like NewPipe).
  *
  * The reply page URL is built by the API implementation that produced the
  * comment (Invidious ?continuation=..., Piped ?nextpage=...), so the fetch
@@ -31,6 +32,8 @@ public class Comment {
     public List<Comment> preloadedReplies;
     /** True when this row is itself a reply (indented in the UI). */
     public boolean isReply = false;
+    /** True when the creator pinned this comment (badge in the UI). */
+    public boolean pinned = false;
 
     // Transient UI state of the replies toggle.
     public boolean repliesShown = false;

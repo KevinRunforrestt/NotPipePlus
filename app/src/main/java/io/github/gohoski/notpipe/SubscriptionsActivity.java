@@ -27,7 +27,6 @@ import java.io.FileNotFoundException;
 import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.FileWriter;
-import java.util.ArrayList;
 import java.util.List;
 
 import io.github.gohoski.notpipe.ui.FilePickerDialog;
