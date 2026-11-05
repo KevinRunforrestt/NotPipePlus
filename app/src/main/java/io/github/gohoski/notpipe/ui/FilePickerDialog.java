@@ -20,15 +20,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 
-/**
- * Minimal in-app file browser for Android 1.5+ (2.3 devices have no
- * system file picker): an AlertDialog with a ListView over the SD card.
- * Folders are browsable, candidate import files (.csv / .json / .txt)
- * are selectable, the title shows the current path, and navigation up
- * beyond the SD card (to /, e.g. for a USB stick) stays possible.
- *
- * Java 1.5 (Android 1.5+).
- */
+/** Minimal in-app file browser for Android 1.5+ (2.3 devices have no system file picker) */
 public class FilePickerDialog implements AdapterView.OnItemClickListener {
 
     /** Called with an absolute path when the user taps a selectable file. */

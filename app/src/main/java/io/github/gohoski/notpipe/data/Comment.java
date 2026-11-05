@@ -3,19 +3,11 @@ package io.github.gohoski.notpipe.data;
 import java.util.Date;
 import java.util.List;
 
-/**
- * One comment row, NewPipe-style: a top-level comment may carry a reply
- * count and a continuation to fetch its replies, which the UI expands and
- * collapses on demand (NewPipe's CommentsRepliesInfoItem), and may be
- * pinned by the creator (shown first with a "Pinned" badge, like NewPipe).
- *
- * The reply page URL is built by the API implementation that produced the
- * comment (Invidious ?continuation=..., Piped ?nextpage=...), so the fetch
- * needs no instance routing: the token is opaque and YouTube-side.
- */
+import io.github.gohoski.notpipe.Utils;
+
+/** One comment row, NewPipe-style: a top-level comment may carry a reply count and a continuation to fetch. */
 public class Comment {
-    /** Which frontend produced this comment (and therefore which JSON
-     *  schema its replies page uses). */
+    /** Which frontend produced this comment (and therefore which JSON schema its replies page uses). */
     public static final int BACKEND_INVIDIOUS = 0;
     public static final int BACKEND_PIPED = 1;
 
@@ -45,9 +37,9 @@ public class Comment {
 
     public Comment(String channel, String channelThumbnail, String content, Date publishedAt,
             String channelId, int replyCount, String repliesUrl, int backend) {
-        this.channel = channel;
+        this.channel = Utils.stripEmoji(channel);
         this.channelThumbnail = channelThumbnail;
-        this.content = content;
+        this.content = Utils.stripEmoji(content);
         this.publishedAt = publishedAt;
         this.channelId = channelId;
         this.replyCount = replyCount;

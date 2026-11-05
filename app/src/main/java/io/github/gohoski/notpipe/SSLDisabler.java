@@ -10,15 +10,9 @@ import javax.net.ssl.SSLSession;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
-/**
- * Created by Gleb on 20.09.2025.
- * Disable certificate check
- */
+/** Created by Gleb on 20.09.2025. */
 class SSLDisabler {
-    /**
-     * Disables SSL certificate checking for Http(s)URLConnection.
-     * Call this once before making any HTTPS connections.
-     */
+    /** Disables SSL certificate checking for Http(s)URLConnection. */
     static void disableSSLCertificateChecking() {
         try {
             TrustManager[] trustAllCerts = new TrustManager[] {

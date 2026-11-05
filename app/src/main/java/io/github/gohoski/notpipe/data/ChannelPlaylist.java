@@ -1,9 +1,6 @@
 package io.github.gohoski.notpipe.data;
 
-/**
- * One public playlist of a channel ("Created playlists" on YouTube),
- * as listed by Metadata.getChannelPlaylists.
- */
+/** One public playlist of a channel ("Created playlists" on YouTube), as listed by Metadata.getChannelPlaylists. */
 public class ChannelPlaylist {
     public final String id;
     public final String title;

@@ -13,17 +13,7 @@ import cc.nnproject.json.JSONArray;
 import cc.nnproject.json.JSONException;
 import cc.nnproject.json.JSONObject;
 
-/**
- * Local subscription store, NewPipe-style: one small JSON file of
- * {id, name, avatar} entries, kept in memory and persisted on every
- * change. A subscription entry holds the UC channel id (or the @handle
- * until it is resolved through a channel page), the display name and the
- * best avatar URL seen so far (used to enrich feed rows and to paint the
- * Subscriptions screen).
- *
- * Thread-safe: the feed workers call setAvatar/setResolved from their own
- * threads while the UI reads the list. Java 1.5 compatible.
- */
+/** Local subscription store, NewPipe-style: one small JSON file of {id, name, avatar} entries. */
 public final class Subscriptions {
 
     private static final String FILE = "subscriptions.json";
@@ -32,9 +22,7 @@ public final class Subscriptions {
 
     private Subscriptions() {}
 
-    // ------------------------------------------------------------------
-    // Reads
-    // ------------------------------------------------------------------
+    // --- Reads ---
 
     /** Number of subscribed channels. */
     public static int count() {
@@ -75,9 +63,7 @@ public final class Subscriptions {
         }
     }
 
-    // ------------------------------------------------------------------
-    // Writes
-    // ------------------------------------------------------------------
+    // --- Writes ---
 
     public static void subscribe(String channelId, String name, String avatar) {
         if (channelId == null || channelId.length() == 0) return;
@@ -103,9 +89,7 @@ public final class Subscriptions {
         }
     }
 
-    /** Replaces an @handle entry with its resolved UC id (and real name /
-     *  avatar), keeping the list position. Called by the feed workers when
-     *  they resolve a handle subscription through the channel endpoint. */
+    /** Replaces an @handle entry with its resolved UC id (and real name / avatar), keeping the list position. */
     public static void setResolved(String handle, String channelId, String name, String avatar) {
         if (handle == null || channelId == null || channelId.startsWith("@")) return;
         synchronized (LOCK) {
@@ -130,9 +114,7 @@ public final class Subscriptions {
         }
     }
 
-    /** Remembers the channel avatar seen on its videos (feed rows from RSS
-     *  carry none). Best-effort: ignores empty URLs and no-ops when the
-     *  channel already has one. */
+    /** Remembers the channel avatar seen on its videos (feed rows from RSS carry none). */
     public static void setAvatar(String channelId, String avatar) {
         if (channelId == null || avatar == null || avatar.length() == 0) return;
         synchronized (LOCK) {
@@ -166,9 +148,7 @@ public final class Subscriptions {
         return added;
     }
 
-    // ------------------------------------------------------------------
-    // Storage
-    // ------------------------------------------------------------------
+    // --- Storage ---
 
     private static int indexOf(String channelId) {
         for (int i = 0; i < subs.size(); i++) {

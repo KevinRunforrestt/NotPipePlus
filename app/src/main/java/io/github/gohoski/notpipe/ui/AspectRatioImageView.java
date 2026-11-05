@@ -1,8 +1,6 @@
 package io.github.gohoski.notpipe.ui;
 
-/**
- * Created by Gleb on 18.01.2026.
- */
+/** Created by Gleb on 18.01.2026. */
 
 import android.content.Context;
 import android.util.AttributeSet;

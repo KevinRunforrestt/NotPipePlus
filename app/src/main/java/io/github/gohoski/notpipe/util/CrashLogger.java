@@ -15,12 +15,7 @@ import android.os.Environment;
 
 import io.github.gohoski.notpipe.NotPipe;
 
-/**
- * Writes every uncaught crash to a small log file so the exact stack trace
- * survives without adb (logcat's FATAL block carries no package name).
- * Internal file plus a best-effort copy at /sdcard/notPipePlus/crash.log.
- * Android 1.5+ compatible.
- */
+/** Writes every uncaught crash to a small log file so the exact stack trace survives without adb. */
 public final class CrashLogger implements Thread.UncaughtExceptionHandler {
 
     private static final String FILE_NAME = "crash.log";

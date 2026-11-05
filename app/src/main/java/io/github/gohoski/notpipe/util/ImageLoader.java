@@ -20,39 +20,60 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/**
- * Created by Gleb on 29.01.2026
- * Utility class for loading images from URLs with optional memory caching
- */
+/** Created by Gleb on 29.01.2026 Utility class for loading images from URLs with optional memory caching. */
 public class ImageLoader {
     private static final Hashtable<String, Bitmap> memoryCache = new Hashtable<String, Bitmap>();
     private static final LinkedList<String> cacheHistory = new LinkedList<String>();
     private static final Hashtable<String, List<ImageRequest>> pendingViews = new Hashtable<String, List<ImageRequest>>();
-    /** 2011-era hardware: 2 slow cores, a small VM heap. Three parallel
-     *  decoders still fill a two-column feed fast without starving the UI
-     *  thread (six caused the wavy scrolling). */
+    /** 2011-era hardware: 2 slow cores, a small VM heap. */
     private static final int DECODE_THREADS = 3;
     private static final int MAX_CACHE_SIZE = 30;
+    /** Byte cap of the memory cache: entry count alone let 30 ARGB thumbnails hold ~15 MB. */
+    private static final long MAX_CACHE_BYTES = 4L * 1024L * 1024L;
+    /** Longest-edge caps: thumbnails never need more than 480 px, avatars never more than 96 px. */
+    private static final int MAX_THUMB_DIM = 480;
+    private static final int MAX_AVATAR_DIM = 96;
     private static final ExecutorService executor = Executors.newFixedThreadPool(DECODE_THREADS);
     private static final Handler uiHandler = new Handler(Looper.getMainLooper());
+    /** Approximate bytes held by the cached bitmaps (guarded by ImageLoader.class together with cacheHistory). */
+    private static long cacheBytes = 0L;
 
     public interface ImageLoaderCallback {
         void onFail();
     }
 
     public static class ImageRequest {
-        public ImageView view;
-        public ImageLoaderCallback callback;
+        private final java.lang.ref.WeakReference<ImageView> viewRef;
+        public final ImageLoaderCallback callback;
 
         public ImageRequest(ImageView view, ImageLoaderCallback callback) {
-            this.view = view;
+            this.viewRef = view != null ? new java.lang.ref.WeakReference<ImageView>(view) : null;
             this.callback = callback;
+        }
+
+        public ImageView getView() {
+            return viewRef != null ? (ImageView) viewRef.get() : null;
         }
     }
 
     /** Load an image from URL into an ImageView (memory cache enabled). */
     public static void loadImage(final String url, final ImageView imageView) {
-        loadImage(url, imageView, true, null);
+        loadImage(url, imageView, true, null, MAX_THUMB_DIM);
+    }
+
+    /** Load a small channel avatar into an ImageView with caching enabled. */
+    public static void loadAvatar(final String url, final ImageView imageView) {
+        loadAvatar(url, imageView, null);
+    }
+
+    /** Same, with a fail callback (used by the channel icon resolver's fallback chain). */
+    public static void loadAvatar(final String url, final ImageView imageView, final ImageLoaderCallback callback) {
+        loadImage(url, imageView, true, callback, MAX_AVATAR_DIM);
+    }
+
+    /** Preload an image into cache without displaying it. */
+    public static void preloadImage(final String url) {
+        loadImage(url, null, true, null, MAX_THUMB_DIM);
     }
 
     /** Same, with an explicit cache flag and an optional fail callback. */
@@ -61,9 +82,7 @@ public class ImageLoader {
         loadImage(url, imageView, useCache, callback, 0);
     }
 
-    /** Same, downscaled so the longest edge stays within maxDimPx (banners
-     *  and avatars decode at a fraction of the source size on 512 MB
-     *  devices); the scaled bitmap is what gets cached. */
+    /** Same, downscaled so the longest edge stays within maxDimPx. */
     public static synchronized void loadImage(final String url, final ImageView imageView,
             final boolean useCache, final ImageLoaderCallback callback, final int maxDimPx) {
         if (url == null || url.length() == 0) {
@@ -84,6 +103,9 @@ public class ImageLoader {
             Bitmap cachedBitmap = memoryCache.get(url);
             if (imageView != null && cachedBitmap != null && !cachedBitmap.isRecycled()) {
                 imageView.setImageBitmap(cachedBitmap);
+            } else if (cachedBitmap != null && cachedBitmap.isRecycled()) {
+                memoryCache.remove(url);
+                cacheHistory.remove(url);
             }
             return;
         }
@@ -97,15 +119,9 @@ public class ImageLoader {
         executor.execute(new ImageLoadRunnable(url, useCache, maxDimPx));
     }
 
-    /** Decodes a stream, optionally downscaled so the longest edge stays
-     *  within maxDimPx (two-pass bounds decode, API-1 compatible).
-     *  On Gingerbread the pixels live on the native heap via inPurgeable:
-     *  without it every decode allocates hundreds of KB on the VM heap and
-     *  the collection pauses show up as the "wave" in vertical scrolling. */
+    /** Decodes a stream, optionally downscaled (two-pass bounds decode). */
     private static Bitmap decodeStream(InputStream is, int maxDimPx) {
-        // Always read fully into a byte array first: purgeable decoding
-        // needs the source bytes retained, and the cap stops a corrupt or
-        // huge response before the decoder sees it.
+        // Always read fully into a byte array first: purgeable decoding needs the source bytes retained.
         byte[] data;
         try {
             java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream(8192);
@@ -143,16 +159,19 @@ public class ImageLoader {
         try {
             BitmapFactory.Options opts = new BitmapFactory.Options();
             opts.inSampleSize = sample;
+            // Thumbnails decode at 16-bit color (parent client's choice): half the bytes of ARGB.
+            if (maxDimPx >= MAX_THUMB_DIM) {
+                opts.inPreferredConfig = Bitmap.Config.RGB_565;
+            }
             if (NotPipe.SDK < 11) {
-                // Bitmap pixels off the VM heap: the VM frees them under
-                // pressure and re-decodes on demand instead of freezing
-                // the UI thread with a collection mid-fling.
+                // Bitmap pixels off the VM heap: the VM frees them under pressure and re-decodes on demand instead of freezing.
                 opts.inPurgeable = true;
                 opts.inInputShareable = true;
             }
             return BitmapFactory.decodeByteArray(data, 0, data.length, opts);
         } catch (OutOfMemoryError e) {
             Log.e("ImageLoader", "OOM decoding image");
+            freeOldestHalf();
             return null;
         } catch (Exception e) {
             return null;
@@ -215,13 +234,7 @@ public class ImageLoader {
             }
             ImageRoutes.reportResult(url, bmp != null);
 
-            // Self-healing: an image routed through an Invidious base that
-            // this network cannot reach is retried on the next live base
-            // instead of leaving the view blank. The bases are community
-            // servers; from any given network only some of them are
-            // reachable, and one bad pick used to blank every thumbnail of
-            // the session (only the subscriptions feed, whose images come
-            // from the instance that just served its RSS, stayed alive).
+            // Self-healing: images on an unreachable base are retried on the next live base.
             String attempted = url;
             for (int alt = 0; alt < ImageRoutes.MAX_ALTERNATIVES && bmp == null; alt++) {
                 String next = ImageRoutes.nextAlternative(attempted);
@@ -237,29 +250,26 @@ public class ImageLoader {
                 public void run() {
                     List<ImageRequest> pendingList;
                     synchronized (ImageLoader.class) {
-                        pendingList = new ArrayList<ImageRequest>(pendingViews.get(url));
+                        List<ImageRequest> stored = pendingViews.get(url);
+                        if (stored == null) {
+                            // Every request was cancelled while the decode ran (rows recycled by a fast scroll): nothing to deliver.
+                            return;
+                        }
+                        pendingList = new ArrayList<ImageRequest>(stored);
                         pendingViews.remove(url);
                     }
 
-                    if (finalBmp != null) {
+                    if (finalBmp != null && !finalBmp.isRecycled()) {
                         if (useCache) {
-                            if (cacheHistory.contains(url)) {
-                                cacheHistory.remove(url);
-                            }
-                            cacheHistory.addLast(url);
-                            memoryCache.put(url, finalBmp);
-
-                            if (cacheHistory.size() > MAX_CACHE_SIZE) {
-                                String oldest = cacheHistory.removeFirst();
-                                memoryCache.remove(oldest);
-                            }
+                            putInCache(url, finalBmp);
                         }
 
                         for (ImageRequest req : pendingList) {
-                            if (req.view != null) {
-                                String currentTag = (String) req.view.getTag();
+                            ImageView reqView = req.getView();
+                            if (reqView != null) {
+                                String currentTag = (String) reqView.getTag();
                                 if (url.equals(currentTag)) {
-                                    req.view.setImageBitmap(finalBmp);
+                                    reqView.setImageBitmap(finalBmp);
                                 }
                             }
                         }
@@ -274,9 +284,7 @@ public class ImageLoader {
             });
         }
 
-        /** Single-shot fetch of an alternative URL: the same headers and
-         *  timeouts as the main loop, no retry of its own (the bounded
-         *  alternatives loop in run() is the retry). */
+        /** Single-shot fetch of an alternative URL: the same headers and timeouts as the main loop. */
         private Bitmap fetchAlternative(String u) {
             try {
                 URL aURL = new URL(u);
@@ -305,12 +313,113 @@ public class ImageLoader {
         }
     }
 
-    /**
-     * Clear the memory cache to free memory.
-     */
+    /** Cancel loading for a specific ImageView. */
+    public static void cancelLoad(ImageView imageView) {
+        if (imageView == null) {
+            return;
+        }
+        imageView.setTag(null);
+        synchronized (ImageLoader.class) {
+            java.util.Enumeration<String> keys = pendingViews.keys();
+            while (keys.hasMoreElements()) {
+                String key = keys.nextElement();
+                List<ImageRequest> list = pendingViews.get(key);
+                if (list == null) {
+                    continue;
+                }
+                for (int i = list.size() - 1; i >= 0; i--) {
+                    ImageView view = list.get(i).getView();
+                    if (view == null || view == imageView) {
+                        list.remove(i);
+                    }
+                }
+                if (list.isEmpty()) {
+                    pendingViews.remove(key);
+                }
+            }
+        }
+    }
+
+    /** Cancel any pending load for the view and detach its bitmap so the hosting activity can be collected. */
+    public static void releaseView(ImageView imageView) {
+        if (imageView == null) {
+            return;
+        }
+        cancelLoad(imageView);
+        try {
+            imageView.setImageBitmap(null);
+        } catch (Exception ignored) {}
+    }
+
+    /** Detaches a view and cancels its pending loads (row recycled). */
+    public static void unbindImageView(ImageView imageView) {
+        if (imageView == null) {
+            return;
+        }
+        cancelLoad(imageView);
+        try {
+            imageView.setImageDrawable(null);
+        } catch (Throwable ignored) {}
+    }
+
+    /** Cancel all pending image loads. Useful when clearing a list. */
+    public static void cancelAllLoads() {
+        synchronized (ImageLoader.class) {
+            pendingViews.clear();
+        }
+    }
+
+    /** Clears the memory cache to free memory. */
     public static void clearCache() {
-        memoryCache.clear();
-        cacheHistory.clear();
+        synchronized (ImageLoader.class) {
+            memoryCache.clear();
+            cacheHistory.clear();
+            cacheBytes = 0L;
+        }
         System.gc();
+    }
+
+    // --- Cache bookkeeping (all under ImageLoader.class) ---
+
+    /** Puts a decoded bitmap in the cache, evicting the oldest entries until BOTH caps. */
+    private static void putInCache(String url, Bitmap bmp) {
+        long bytes = approxBytes(bmp);
+        if (bytes > MAX_CACHE_BYTES) return; // never let one image eat the cache
+        synchronized (ImageLoader.class) {
+            if (cacheHistory.contains(url)) {
+                cacheHistory.remove(url);
+                Bitmap old = memoryCache.remove(url);
+                if (old != null && old != bmp) cacheBytes -= approxBytes(old);
+            }
+            cacheHistory.addLast(url);
+            memoryCache.put(url, bmp);
+            cacheBytes += bytes;
+            while (cacheHistory.size() > MAX_CACHE_SIZE || cacheBytes > MAX_CACHE_BYTES) {
+                String oldest = cacheHistory.removeFirst();
+                Bitmap gone = memoryCache.remove(oldest);
+                if (gone != null) cacheBytes -= approxBytes(gone);
+            }
+        }
+    }
+
+    /** Drops the oldest half of the cache under memory pressure (an OOM mid-decode frees room for the retry). */
+    private static void freeOldestHalf() {
+        synchronized (ImageLoader.class) {
+            int drop = cacheHistory.size() / 2;
+            for (int i = 0; i < drop; i++) {
+                String oldest = cacheHistory.removeFirst();
+                Bitmap gone = memoryCache.remove(oldest);
+                if (gone != null) cacheBytes -= approxBytes(gone);
+            }
+        }
+    }
+
+    /** Exact byte size of a bitmap's pixel storage (row bytes x height, API-1 safe). */
+    private static long approxBytes(Bitmap b) {
+        try {
+            return (long) b.getRowBytes() * (long) b.getHeight();
+        } catch (Throwable t) {
+            return 0L;
+        }
     }
 }

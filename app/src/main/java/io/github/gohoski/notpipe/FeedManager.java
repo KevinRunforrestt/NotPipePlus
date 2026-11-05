@@ -10,11 +10,15 @@ import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import cc.nnproject.json.JSON;
+import cc.nnproject.json.JSONArray;
+import cc.nnproject.json.JSONObject;
 import io.github.gohoski.notpipe.api.ChannelApi;
 import io.github.gohoski.notpipe.api.Manager;
 import io.github.gohoski.notpipe.api.Metadata;
@@ -22,18 +26,10 @@ import io.github.gohoski.notpipe.api.RssFeed;
 import io.github.gohoski.notpipe.config.Config;
 import io.github.gohoski.notpipe.data.Channel;
 import io.github.gohoski.notpipe.data.VideoInfo;
+import io.github.gohoski.notpipe.http.HttpClient;
+import io.github.gohoski.notpipe.http.HttpRequest;
 
-/**
- * NewPipe-style subscriptions feed engine, process-wide (rotation-safe).
- * Mirrors NewPipe's FeedLoadManager: per-subscription lastUpdate
- * timestamps, a "Loading channels: X / Y" progress event, 3 parallel
- * extractions, per-channel error collection and earlier retries of failed
- * channels. Platform adaptations (Android 2.3, 512 MB): plain threads and
- * small JSON files instead of Room/RxJava, the merged feed is cached to
- * internal storage so the tab paints instantly, and a 30 s wall-clock
- * budget bounds every refresh (channels that do not fit stay outdated
- * and are fetched first on the next refresh).
- */
+/** NewPipe-style subscriptions feed engine, process-wide (rotation-safe). */
 public final class FeedManager {
 
     /** Global time budget for one feed refresh. */
@@ -42,23 +38,27 @@ public final class FeedManager {
     public static final int FEED_WORKERS = 3;
     /** Distinct Invidious instances tried per channel on the RSS route. */
     public static final int FEED_RSS_ATTEMPTS = 2;
-    /** A channel fetched less than this long ago is not re-checked on
-     *  automatic refreshes (NewPipe's feed_update_threshold). */
+    /** A channel fetched less than this long ago is not re-checked on automatic refreshes. */
     public static final long FEED_CHANNEL_STALE_MS = 20L * 60L * 1000L;
     /** A failed channel is retried once this much time has passed. */
     public static final long FEED_RETRY_AFTER_FAIL_MS = 5L * 60L * 1000L;
+    /** Shorts ids remembered per channel from the shelf/playlist lookup. */
+    private static final int MAX_SHORTS_IDS = 120;
+    /** Timeout of one Shorts shelf/playlist lookup (kept short to protect the 30 s refresh budget). */
+    private static final int SHORTS_LOOKUP_TIMEOUT = 6000;
+    /** Timeout of the newest-videos JSON listing (the Shorts-aware primary source of a channel fetch). */
+    private static final int VIDEOS_JSON_TIMEOUT = 8000;
+    /** Rows parsed from the newest-videos JSON (FEED_VIDEOS_PER_CHANNEL per channel). */
+    private static final int VIDEOS_JSON_ROWS = 24;
 
     private static final String CACHE_FILE = "feed_cache.json";
     private static final String STATE_FILE = "feed_state.json";
+    /** Shorts-id memory: {channelId: [videoId, ...]} of every shelf lookup that answered. */
+    private static final String SHORTS_FILE = "feed_shorts.json";
     private static final int MAX_STATE_BYTES = 1024 * 1024;
     private static final Object IO_LOCK = new Object();
 
-    // ------------------------------------------------------------------
-    // Process-wide update coordinator (rotation-safe): the in-flight
-    // refresh lives in this singleton, NOT in the activity. The new
-    // activity re-attaches: live progress via the observer, a finished
-    // result via pendingResult.
-    // ------------------------------------------------------------------
+    // --- Process-wide update coordinator (rotation-safe) ---
 
     /** Refresh reasons (mirror MainActivity's constants). */
     public static final int REASON_AUTO = 0;
@@ -114,10 +114,7 @@ public final class FeedManager {
         }
     }
 
-    /**
-     * Consumes the result of a refresh that finished while no activity was
-     * attached (e.g. mid-rotation); null when there is nothing pending.
-     */
+    /** Consumes the result of a refresh that finished while no activity was attached (e.g. mid-rotation) */
     public static FeedUpdate takePendingResult() {
         synchronized (UPDATE_LOCK) {
             FeedUpdate r = pendingResult;
@@ -134,11 +131,7 @@ public final class FeedManager {
         }
     }
 
-    /**
-     * Parks the newest result only: a superseded run can still be winding
-     * down after its replacement already parked a FRESHER result, and the
-     * stale one (a cancelled marker) must never overwrite it.
-     */
+    /** Parks the newest result only (a stale superseded one must never overwrite it). */
     private static void parkResult(FeedUpdate result, int reason) {
         synchronized (UPDATE_LOCK) {
             if (pendingResult != null && pendingResult.seq >= result.seq) return;
@@ -155,23 +148,16 @@ public final class FeedManager {
         }
     }
 
-    /**
-     * Starts a refresh at process scope. No-op (returns false) when one is
-     * already running; a REBUILD first stops the previous refresh.
-     *
-     * @return true when this call started a new refresh
-     */
+    /** Starts a refresh at process scope. */
     public static boolean startUpdate(final Config config, final List<String[]> subs,
             final List<VideoInfo> currentFeed, final boolean ignoreThreshold, final int reason) {
         synchronized (UPDATE_LOCK) {
             if (updateThread != null && updateThread.isAlive()) {
                 if (reason != REASON_REBUILD) return false;
-                // A rebuild supersedes whatever is running: flag the OLD
-                // run's own flag, wait briefly for the workers to wind
-                // down, then start a fresh run.
+                // A rebuild supersedes whatever is running: flag the OLD run's own flag.
                 currentRunCancel.set(true);
                 try {
-                    updateThread.join(3000);
+                    updateThread.join(800);
                 } catch (InterruptedException ignored) {
                 }
             }
@@ -196,9 +182,7 @@ public final class FeedManager {
                         t.printStackTrace();
                     }
                     if (myCancel.get()) {
-                        // Superseded run: still deliver a result so a UI that
-                        // re-attached never waits for a notification (the
-                        // eternal-spinner bug).
+                        // Superseded run: still deliver a result so a UI that re-attached never waits for a notification.
                         FeedUpdate cancelledResult = new FeedUpdate();
                         cancelledResult.seq = mySeq;
                         cancelledResult.reason = reason;
@@ -253,11 +237,7 @@ public final class FeedManager {
 
     /** Progress listener of the update engine (called from worker threads). */
     public interface ProgressListener {
-        /**
-         * Emitted from worker threads as channels complete.
-         * @param current finished channels (failed ones included)
-         * @param total channels included in this refresh
-         */
+        /** Emitted from worker threads as channels complete. */
         void onFeedProgress(int current, int total);
     }
 
@@ -275,13 +255,11 @@ public final class FeedManager {
         public List<String> failedNames;
         /** Wall-clock time of this refresh. */
         public long loadedAt;
-        /** Sequence number of the run that produced this (guards the UI
-         *  against applying the same result twice). */
+        /** Sequence number of the run that produced this (guards the UI against applying the same result twice). */
         public long seq;
         /** Why this refresh ran (REASON_*). */
         public int reason;
-        /** True when the run was cancelled/superseded: the UI must keep
-         *  the screen as-is and never wait for a follow-up from it. */
+        /** True when the run was cancelled/superseded: the UI must keep the screen as-is and never wait for a follow-up. */
         public boolean cancelled;
 
         FeedUpdate() {
@@ -293,15 +271,9 @@ public final class FeedManager {
 
     private FeedManager() {}
 
-    // ------------------------------------------------------------------
-    // Disk cache
-    // ------------------------------------------------------------------
+    // --- Disk cache ---
 
-    /**
-     * Last successfully merged feed from internal storage, or null when no
-     * usable cache exists (reading a few dozen KB from flash is what makes
-     * the feed appear instantly on app open).
-     */
+    /** Last successfully merged feed from internal storage, or null when no usable cache exists. */
     public static FeedLogic.CachedFeed loadCachedFeed() {
         synchronized (IO_LOCK) {
             try {
@@ -348,25 +320,9 @@ public final class FeedManager {
         }
     }
 
-    // ------------------------------------------------------------------
-    // Update engine
-    // ------------------------------------------------------------------
+    // --- Update engine ---
 
-    /**
-     * Refresh the subscriptions feed.
-     *
-     * @param config user configuration (provides the Invidious instances
-     *               used for the RSS route)
-     * @param subs snapshot of the subscription list
-     * @param currentFeed feed currently on screen / cached (merged with the
-     *                    fresh results); null rebuilds the feed from scratch
-     * @param ignoreThreshold true = check every channel (manual refresh /
-     *                    subscription list changed), false = only channels
-     *                    not fetched within FEED_CHANNEL_STALE_MS
-     * @param progress optional progress listener (called from workers)
-     * @param cancel optional cancellation flag
-     * @return the refresh result, never null
-     */
+    /** Refresh the subscriptions feed. */
     public static FeedUpdate updateFeed(Config config, List<String[]> subs,
             List<VideoInfo> currentFeed, boolean ignoreThreshold,
             ProgressListener progress, AtomicBoolean cancel) {
@@ -415,8 +371,7 @@ public final class FeedManager {
         }
 
         if (!Utils.hasConnection(NotPipe.getAppContext())) {
-            // Offline: fail fast; ConnectivityMonitor re-triggers the
-            // visible screen on reconnect (REASON_RECONNECT).
+            // Offline: fail fast; ConnectivityMonitor re-triggers the visible screen on reconnect (REASON_RECONNECT).
             for (int i = 0; i < outdated.size(); i++) {
                 String[] sub = (String[]) outdated.get(i);
                 r.failedNames.add(FeedLogic.channelName(sub));
@@ -438,10 +393,15 @@ public final class FeedManager {
         final AtomicInteger done = new AtomicInteger(0);
         final AtomicInteger okCount = new AtomicInteger(0);
         final int total = r.checked;
-        // Must be declared before the local Worker class below (Java 1.5:
-        // local classes can only capture final locals).
+        // Must be declared before the local Worker class below (Java 1.5: local classes can only capture final locals).
         final ProgressListener progressListener = progress;
         final AtomicBoolean cancelFlag = cancel;
+        // Shorts hiding: the RSS rows carry no duration, so the threshold filter alone can never act on them.
+        final boolean hideShortsSubs = config != null && config.isHideShortsSubscriptions();
+        final int shortThreshold = config != null ? config.getShortLengthSeconds() : 0;
+        // Shorts-id memory: loaded once per refresh, updated by every successful shelf lookup, applied to the merged feed and saved.
+        final Map<String, HashSet> shortsIds = hideShortsSubs ? loadShortsIds() : null;
+        final boolean[] shortsIdsDirty = new boolean[1];
 
         final class Worker implements Runnable {
             public void run() {
@@ -452,35 +412,46 @@ public final class FeedManager {
                     final String channelId = sub[0];
 
                     if (System.currentTimeMillis() > deadline) {
-                        // Budget spent: leave the channel outdated (it goes
-                        // first next refresh, like NewPipe does).
+                        // Budget spent: leave the channel outdated (it goes first next refresh, like NewPipe does).
                         progress(done.incrementAndGet());
                         continue;
                     }
 
-                    List<VideoInfo> vids = null;
+                    ChannelFetch fetch = null;
                     try {
-                        vids = fetchChannelVideos(rotation, fApi, fChannelApi, channelId, deadline);
+                        fetch = fetchChannelVideos(rotation, fApi, fChannelApi, channelId,
+                                deadline, hideShortsSubs, shortThreshold);
                     } catch (Throwable t) {
                         t.printStackTrace();
-                        vids = null;
                     }
                     if (cancelFlag != null && cancelFlag.get()) return;
 
-                    // RSS rows carry no channel avatar: fill them from the
-                    // stored subscription entry.
+                    List<VideoInfo> vids = fetch != null ? fetch.videos : null;
+
+                    // Remove the channel's Shorts (by id, from its Shorts shelf) before the rows enter the merged feed.
+                    if (hideShortsSubs && vids != null && !vids.isEmpty()
+                            && !(fetch != null && fetch.durationsFiltered)) {
+                        String shelfId = fetch != null && fetch.resolvedId != null
+                                ? fetch.resolvedId : channelId;
+                        vids = removeShorts(vids, rotation, shelfId,
+                                fetch != null ? fetch.servedBy : null, deadline,
+                                shortsIds, shortsIdsDirty);
+                    }
+
+                    // RSS rows carry no channel avatar: fill them from the stored subscription entry.
                     if (vids != null && !vids.isEmpty()) {
                         vids = withAvatar(vids, Subscriptions.getAvatar(channelId));
                     }
 
                     if (vids != null) {
-                        // Route answered (an empty but valid feed is a
-                        // legitimate "no uploads"): mark it as checked.
+                        // Route answered: store the list even when empty (an all-Shorts channel must not resurrect cached rows).
                         synchronized (state) {
                             state.put(channelId, Long.valueOf(System.currentTimeMillis()));
                         }
+                        String storeKey = fetch != null && fetch.resolvedId != null
+                                ? fetch.resolvedId : channelId;
+                        fetched.put(storeKey, vids);
                         if (!vids.isEmpty()) {
-                            fetched.put(channelId, vids);
                             okCount.incrementAndGet();
                             // Remember the avatar seen on the channel videos.
                             for (int j = 0; j < vids.size() && j < FeedLogic.FEED_VIDEOS_PER_CHANNEL; j++) {
@@ -493,8 +464,7 @@ public final class FeedManager {
                         }
                     } else {
                         failedNames.add(FeedLogic.channelName(sub));
-                        // NewPipe markAsOutdated: failed channels become
-                        // outdated again soon.
+                        // NewPipe markAsOutdated: failed channels become outdated again soon.
                         synchronized (state) {
                             state.put(channelId, Long.valueOf(
                                     System.currentTimeMillis()
@@ -528,46 +498,88 @@ public final class FeedManager {
         }
 
         r.videos = FeedLogic.mergeFeed(currentFeed, fetched, subsById);
+        if (hideShortsSubs) {
+            // The merged feed (and with it the on-disk cache) must be Shorts-free.
+            r.videos = FeedParse.filterByShortsIds(r.videos, shortsIds);
+            r.videos = FeedParse.filterByDuration(r.videos, shortThreshold);
+        }
         r.ok = okCount.get();
         r.failed = failedNames.size();
         r.failedNames = new ArrayList<String>(failedNames);
         if (r.ok > 0) {
             saveCache(r.videos, r.loadedAt);
         }
-        // State advances even when no channel returned videos: channels
-        // that were legitimately checked must not be retried immediately.
+        // State advances even when no channel returned videos: channels that were legitimately checked must not be retried immediately.
         saveChannelState(state);
+        if (hideShortsSubs && shortsIds != null && shortsIdsDirty[0]) {
+            synchronized (IO_LOCK) {
+                try {
+                    writeInternal(SHORTS_FILE, buildShortsIdsJson(shortsIds));
+                } catch (Throwable t) {
+                    t.printStackTrace();
+                }
+            }
+        }
         return r;
     }
 
-    // ------------------------------------------------------------------
-    // Per-channel fetch (RSS-first with instance rotation + fallbacks)
-    // ------------------------------------------------------------------
+    // --- Per-channel fetch (Shorts-aware primary + RSS rotation + fallbacks) ---
 
-    /**
-     * Fetch one channel's videos, resolving @handle subscriptions through
-     * the full channel endpoint (which also returns the real UC id, name
-     * and avatar - persisted so it happens only once). Primary route for
-     * plain UC ids is the NewPipe-style channel RSS served by the Invidious
-     * instances; the classic JSON/HTML endpoints remain as fallback.
-     *
-     * @return null = the channel could not be fetched; a list (possibly
-     *         empty) = authoritative answer
-     */
-    static List<VideoInfo> fetchChannelVideos(RssRotation rotation, Metadata api,
-            ChannelApi channelApi, String channelId, long deadline) {
+    /** Result of one channel fetch: the rows plus what produced them. */
+    static final class ChannelFetch {
+        /** Rows of the channel; null = the channel could not be fetched, a list (possibly empty) = authoritative answer. */
+        List<VideoInfo> videos;
+        /** Instance that produced the rows (null when unknown) - the cheapest place to ask for the Shorts shelf. */
+        String servedBy;
+        /** True when the rows came from the newest-videos JSON listing: Shorts excluded at the source and duration-filtered. */
+        boolean durationsFiltered;
+        /** Resolved UC id of a @handle subscription (null otherwise). */
+        String resolvedId;
+    }
+
+    /** Fetch one channel's videos, resolving @handle subscriptions through the full channel endpoint. */
+    static ChannelFetch fetchChannelVideos(RssRotation rotation, Metadata api,
+            ChannelApi channelApi, String channelId, long deadline,
+            boolean hideShorts, int shortThreshold) {
         if (channelId == null || channelId.length() == 0) return null;
+        ChannelFetch result = new ChannelFetch();
         if (channelId.startsWith("@") && api != null) {
             try {
                 Channel ch = api.getChannel(channelId);
                 if (ch != null && ch.videos != null && !ch.videos.isEmpty()) {
                     Subscriptions.setResolved(channelId, ch.id, ch.title, ch.thumbnail);
-                    return ch.videos;
+                    result.videos = ch.videos;
+                    result.resolvedId = ch.id;
+                    return result;
                 }
             } catch (Exception ignored) {
             }
         }
-        // ---- Primary: per-channel RSS through an Invidious instance ----
+        // Primary with "hide Shorts": newest-videos JSON listing (Shorts-free, durations included).
+        if (hideShorts && !channelId.startsWith("@")) {
+            for (int attempt = 0; attempt < 2; attempt++) {
+                if (System.currentTimeMillis() > deadline) break;
+                String base = rotation.next();
+                if (base == null) break;
+                try {
+                    String body = HttpClient.executeToString(
+                            new HttpRequest(base + "/api/v1/channels/" + channelId + "/videos"),
+                            VIDEOS_JSON_TIMEOUT);
+                    List<VideoInfo> vids = FeedParse.parseChannelVideosJson(
+                            body, channelId, base, shortThreshold, VIDEOS_JSON_ROWS);
+                    if (vids != null && !vids.isEmpty()) {
+                        result.videos = vids;
+                        result.servedBy = base;
+                        result.durationsFiltered = true;
+                        return result;
+                    }
+                    // Error JSON or an empty shell: this instance's route is unusable - the next round-robin pick gets a chance.
+                } catch (Throwable t) {
+                    rotation.markDead(base);
+                }
+            }
+        }
+        // --- Primary without "hide Shorts": per-channel RSS through an Invidious instance ---
         List<VideoInfo> rssFallback = null;
         if (!channelId.startsWith("@")) {
             for (int attempt = 0; attempt < FEED_RSS_ATTEMPTS; attempt++) {
@@ -577,11 +589,12 @@ public final class FeedManager {
                 try {
                     List<VideoInfo> rss = RssFeed.fetch(base, channelId);
                     if (rss != null) {
-                        // Only a feed WITH view counts wins outright: feed rows
-                        // show views + date only when both exist. A poor feed
-                        // (old Invidious builds omit media:statistics) stays
-                        // as a last resort.
-                        if (hasFeedViews(rss)) return rss;
+                        // Only a feed WITH view counts wins outright: feed rows show views + date only when both exist.
+                        if (hasFeedViews(rss)) {
+                            result.videos = rss;
+                            result.servedBy = base;
+                            return result;
+                        }
                         if (rssFallback == null) rssFallback = rss;
                     }
                     rotation.markDead(base);
@@ -590,9 +603,11 @@ public final class FeedManager {
                 }
             }
         }
-        // ---- Fallback: the classic JSON/HTML endpoints ----
-        // The 30 s budget must bound the fallbacks too.
-        if (System.currentTimeMillis() > deadline) return rssFallback;
+        // ---- Fallback: the classic JSON/HTML endpoints ---- The 30 s budget must bound the fallbacks too.
+        if (System.currentTimeMillis() > deadline) {
+            result.videos = rssFallback;
+            return result;
+        }
         List<VideoInfo> channelVideos = null;
         if (api != null) {
             try {
@@ -600,19 +615,20 @@ public final class FeedManager {
             } catch (Exception ignored) {
             }
         }
-        if (System.currentTimeMillis() > deadline) return channelVideos;
+        if (System.currentTimeMillis() > deadline) {
+            result.videos = channelVideos;
+            return result;
+        }
         if ((channelVideos == null || channelVideos.isEmpty()) && channelApi != null) {
             try {
                 channelVideos = channelApi.getChannelVideos(channelId, 0);
             } catch (Exception ignored) {
             }
         }
-        // Some instances cannot parse the channel page and fall back to the
-        // "uploads" playlist, which carries NO view counts and NO dates.
-        // Prefer the ChannelApi (yt2009) result when the metadata one is
-        // that poor.
+        // Some instances cannot parse the channel page and fall back to the "uploads" playlist.
         if (System.currentTimeMillis() > deadline) {
-            return channelVideos != null ? channelVideos : rssFallback;
+            result.videos = channelVideos != null ? channelVideos : rssFallback;
+            return result;
         }
         if (channelVideos != null && !channelVideos.isEmpty()
                 && channelApi != null && !hasAnyFeedMetadata(channelVideos)) {
@@ -624,7 +640,8 @@ public final class FeedManager {
             } catch (Exception ignored) {
             }
         }
-        return channelVideos != null ? channelVideos : rssFallback;
+        result.videos = channelVideos != null ? channelVideos : rssFallback;
+        return result;
     }
 
     /** True when at least one video of the list has views or a date. */
@@ -646,8 +663,129 @@ public final class FeedManager {
         return false;
     }
 
-    /** Copies the list filling the channel avatar rows miss (RSS rows carry
-     *  none; the stored subscription avatar is a direct URL). */
+    // --- Shorts detection for the local subscriptions feed ---
+
+    /** Removes a channel's Shorts from its feed rows. */
+    static List<VideoInfo> removeShorts(List<VideoInfo> vids,
+            RssRotation rotation, String channelId, String preferredBase,
+            long deadline, Map<String, HashSet> shortsIds, boolean[] dirty) {
+        if (vids == null || vids.isEmpty()) return vids;
+        HashSet shorts = fetchShortsIds(rotation, channelId, preferredBase, deadline);
+        if (shortsIds != null && channelId != null && shorts != null) {
+            HashSet prev = (HashSet) shortsIds.put(channelId, shorts);
+            if (dirty != null && (prev == null || !prev.equals(shorts))) dirty[0] = true;
+        }
+        if (shorts == null || shorts.isEmpty()) return vids;
+        List<VideoInfo> out = new ArrayList<VideoInfo>(vids.size());
+        for (int i = 0; i < vids.size(); i++) {
+            VideoInfo v = vids.get(i);
+            if (v != null && v.id != null && shorts.contains(v.id)) continue;
+            out.add(v);
+        }
+        return out;
+    }
+
+    /** Ids of a channel's Shorts from an Invidious instance (shelf, then UUSH playlist). */
+    static HashSet fetchShortsIds(RssRotation rotation, String channelId,
+            String preferredBase, long deadline) {
+        if (rotation == null || channelId == null) return null;
+        channelId = channelId.trim();
+        if (!channelId.startsWith("UC") || channelId.length() < 3) return null;
+
+        // 1) The instance that just served the channel.
+        if (preferredBase != null && System.currentTimeMillis() <= deadline) {
+            HashSet ids = shortsListingIds(preferredBase,
+                    "/api/v1/channels/" + channelId + "/shorts", null);
+            if (ids != null) return ids;
+        }
+        // 2) One other instance, not yet failed at connection level.
+        if (System.currentTimeMillis() <= deadline) {
+            String base = rotation.nextForShorts(preferredBase);
+            if (base != null) {
+                HashSet ids = shortsListingIds(base,
+                        "/api/v1/channels/" + channelId + "/shorts", rotation);
+                if (ids != null) return ids;
+            }
+        }
+        // 3) The channel's "shorts" playlist on the preferred instance (served by instances that disabled the shelf route).
+        if (preferredBase != null && System.currentTimeMillis() <= deadline) {
+            HashSet ids = shortsListingIds(preferredBase,
+                    "/api/v1/playlists/UUSH" + channelId.substring(2), null);
+            if (ids != null) return ids;
+        }
+        return null;
+    }
+
+    /** Ids of one shelf/playlist listing; markDeadOnConnFail marks the instance unusable for the rest of this refresh. */
+    private static HashSet shortsListingIds(String base, String endpoint,
+            RssRotation markDeadOnConnFail) {
+        try {
+            return FeedParse.parseVideoIds(HttpClient.executeToString(
+                    new HttpRequest(base + endpoint), SHORTS_LOOKUP_TIMEOUT));
+        } catch (Throwable t) {
+            if (markDeadOnConnFail != null) markDeadOnConnFail.markShortsDead(base);
+            return null;
+        }
+    }
+
+    // --- Shorts-id memory (survives restarts; bounds the cached Shorts) ---
+
+    /** Hard cap of remembered Shorts ids (~26 KB of JSON on flash). */
+    private static final int MAX_SHORTS_IDS_TOTAL = 2400;
+
+    /** Loads {channelId: [videoId, ...]} from internal storage; a missing or broken file yields an empty map. */
+    static Map<String, HashSet> loadShortsIds() {
+        Map<String, HashSet> memory = new HashMap<String, HashSet>();
+        synchronized (IO_LOCK) {
+            try {
+                String json = readInternal(SHORTS_FILE);
+                if (json == null || json.length() == 0) return memory;
+                JSONObject root = JSON.getObject(json);
+                java.util.Enumeration keys = root.keys();
+                while (keys.hasMoreElements()) {
+                    String key = (String) keys.nextElement();
+                    try {
+                        JSONArray arr = root.getArray(key);
+                        HashSet ids = new HashSet();
+                        for (int i = 0; i < arr.size(); i++) {
+                            String id = arr.getString(i);
+                            if (id != null && id.length() == 11) ids.add(id);
+                        }
+                        memory.put(key, ids);
+                    } catch (Throwable ignored) {
+                        // Skip a broken row, keep the rest.
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return memory;
+    }
+
+    /** Serializes the Shorts-id memory, trimmed to the total-ids cap. */
+    static String buildShortsIdsJson(Map<String, HashSet> memory) {
+        JSONObject root = new JSONObject();
+        if (memory == null || memory.isEmpty()) return root.toString();
+        int total = 0;
+        java.util.Iterator it = memory.entrySet().iterator();
+        while (it.hasNext() && total < MAX_SHORTS_IDS_TOTAL) {
+            Map.Entry entry = (Map.Entry) it.next();
+            HashSet ids = (HashSet) entry.getValue();
+            JSONArray arr = new JSONArray();
+            if (ids != null) {
+                java.util.Iterator ii = ids.iterator();
+                while (ii.hasNext() && total < MAX_SHORTS_IDS_TOTAL) {
+                    String id = (String) ii.next();
+                    arr.put(arr.size(), id);
+                    total++;
+                }
+            }
+            root.put((String) entry.getKey(), arr);
+        }
+        return root.toString();
+    }
+
+    /** Copies the list, filling the channel avatar the RSS rows never carry. */
     static List<VideoInfo> withAvatar(List<VideoInfo> vids, String avatar) {
         if (vids == null || vids.isEmpty() || avatar == null || avatar.length() == 0) return vids;
         boolean needed = false;
@@ -672,8 +810,7 @@ public final class FeedManager {
         return out;
     }
 
-    /** Same, per video, from each channel's subscription record (cache
-     *  rows written before avatars were kept arrive without one). */
+    /** Same, per video, from each channel's subscription record. */
     static List<VideoInfo> fillCachedAvatars(List<VideoInfo> vids) {
         if (vids == null || vids.isEmpty()) return vids;
         boolean needed = false;
@@ -701,13 +838,12 @@ public final class FeedManager {
         return out;
     }
 
-    /**
-     * Invidious instances used for the RSS route, rotated round-robin; an
-     * instance that fails once is skipped for the rest of the refresh.
-     */
+    /** Invidious instances used for the RSS route, rotated round-robin; an instance that fails once is skipped. */
     static final class RssRotation {
         private final List<String> instances = new ArrayList<String>();
         private final List<String> dead = new ArrayList<String>();
+        /** Instances that failed the SHORTS lookup at connection level (separate from RSS failures). */
+        private final List<String> shortsDead = new ArrayList<String>();
         private int cursor = 0;
 
         RssRotation(Config config) {
@@ -735,11 +871,28 @@ public final class FeedManager {
         synchronized void markDead(String base) {
             if (base != null && !dead.contains(base)) dead.add(base);
         }
+
+        /** Next instance not yet failed at connection level for the SHORTS lookup and different from "exclude". */
+        synchronized String nextForShorts(String exclude) {
+            int size = instances.size();
+            if (size == 0) return null;
+            for (int t = 0; t < size; t++) {
+                cursor = (cursor + 1) % size;
+                String candidate = (String) instances.get(cursor);
+                if (shortsDead.contains(candidate)) continue;
+                if (exclude != null && candidate.equals(exclude)) continue;
+                return candidate;
+            }
+            return null;
+        }
+
+        /** An instance whose shorts lookup failed at connection level is skipped for the rest of the refresh. */
+        synchronized void markShortsDead(String base) {
+            if (base != null && !shortsDead.contains(base)) shortsDead.add(base);
+        }
     }
 
-    // ------------------------------------------------------------------
-    // Internal storage helpers
-    // ------------------------------------------------------------------
+    // --- Internal storage helpers ---
 
     private static String readInternal(String name) throws IOException {
         Context ctx = NotPipe.getAppContext();

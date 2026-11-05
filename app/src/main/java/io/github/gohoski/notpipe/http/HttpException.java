@@ -1,8 +1,6 @@
 package io.github.gohoski.notpipe.http;
 
-/**
- * Created by Gleb on 21.08.2025.
- */
+/** Created by Gleb on 21.08.2025. */
 
 import java.io.IOException;
 

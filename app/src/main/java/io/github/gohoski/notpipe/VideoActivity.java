@@ -22,14 +22,17 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.view.WindowManager;
+import android.widget.ArrayAdapter;
 import android.widget.BaseAdapter;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.MediaController;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.TabHost;
 import android.widget.TabWidget;
 import android.widget.TextView;
@@ -48,6 +51,7 @@ import java.util.Locale;
 import java.util.Random;
 
 import io.github.gohoski.notpipe.api.CommentsPage;
+import io.github.gohoski.notpipe.api.Codec;
 import io.github.gohoski.notpipe.api.Conversion;
 import io.github.gohoski.notpipe.api.Manager;
 import io.github.gohoski.notpipe.api.Metadata;
@@ -63,6 +67,7 @@ import io.github.gohoski.notpipe.http.HttpClient;
 import io.github.gohoski.notpipe.http.HttpRequest;
 import io.github.gohoski.notpipe.ui.AdapterLinearLayout;
 import io.github.gohoski.notpipe.ui.AspectRatioVideoView;
+import io.github.gohoski.notpipe.ui.ChannelIconRefreshable;
 import io.github.gohoski.notpipe.ui.CommentAdapter;
 import io.github.gohoski.notpipe.ui.VideoAdapter;
 import io.github.gohoski.notpipe.util.ChannelIconResolver;
@@ -94,8 +99,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
 
     boolean relatedLoaded = false;
     boolean commentsLoaded = false;
-    /** True while the tablet-only dummy tab exists (SDK 11+ tablets):
-     *  hideDummyTab may only run when it was actually added. */
+    /** True while the tablet-only dummy tab exists (SDK 11+ tablets). */
     private boolean hasDummyTab = false;
     protected boolean isOpencore = NotPipe.SDK < 8; // OpenCORE (Android <2.2) playback bugs need workarounds
 
@@ -106,13 +110,13 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
     private int commentsBackend = Comment.BACKEND_INVIDIOUS;
     /** Single-flight guard of the next-page loader. */
     private boolean commentsMoreLoading = false;
-    /** Tab tapped before the video data arrived; loaded once it does (a
-     *  first tap used to do nothing until the user tapped again). */
+    /** Tab tapped before the video data arrived; loaded once it does. */
     private String pendingTab = null;
 
     private LoadVideoTask loadVideoTask;
     private ResolveStreamTask resolveStreamTask;
     private DownloadVideoTask downloadVideoTask;
+    private UserDownloadTask userDownloadTask;
 
     private static final int MAX_STREAM_RETRIES = 3;
     private int streamRetryCount = 0;
@@ -123,6 +127,17 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
     // Retry Handler and Runnable to manage automated recovery on I/O errors (1, -1004)
     private Handler retryHandler = new Handler();
     private Runnable retryRunnable = null;
+
+    // Restores the video box after handing playback to an external player,
+    // since there is no internal onPrepared callback to bring it back
+    private static final long EXTERNAL_PLAYER_RESTORE_DELAY = 3000;
+    private Handler externalPlayerHandler = new Handler();
+    private Runnable externalPlayerRestoreRunnable = new Runnable() {
+        @Override
+        public void run() {
+            restoreVideoUI();
+        }
+    };
 
     private int videoPosition = 0;
     private boolean videoPlaying = false;
@@ -138,10 +153,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
     private int videoBufferTimeout = 60000;
     private static final String DIR_VIDEOS = "notPipe/videos";
 
-    // ------------------------------------------------------------------
-    // Subtitles (WebVTT overlay on top of the VideoView; the ticker only
-    // reads the player position every 300 ms)
-    // ------------------------------------------------------------------
+    // --- Subtitles (WebVTT overlay on the VideoView) ---
     private VttSubtitles subtitles;
     private List<SubtitleTrack> subtitleTracks;
     private SubtitleTrack activeSubtitleTrack;
@@ -206,34 +218,12 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         }
 
         relatedAdapter = new VideoAdapter(this, R.layout.item_video, relatedVideos);
-        relatedAdapter.setChannelIconListener(new VideoAdapter.ChannelIconListener() {
-            @Override
-            public String getResolvedIcon(String channelId) {
-                return ChannelIconResolver.getResolved(channelId);
-            }
-
-            @Override
-            public void onRequestFallbackIcon(String channelId) {
-                ChannelIconResolver.requestFallback(channelId, new ChannelIconResolver.OnIconResolvedListener() {
-                    @Override
-                    public void onIconResolved(String channelId, String url) {
-                        if (url != null && url.length() > 0 && relatedLoaded && relatedList instanceof ViewGroup) {
-                            // persist: heals the feed and subscriptions too
-                            Subscriptions.setAvatar(channelId, url);
-                            ViewGroup vg = (ViewGroup) relatedList;
-                            for (int i = 0; i < vg.getChildCount(); i++) {
-                                View child = vg.getChildAt(i);
-                                if (child != null) {
-                                    relatedAdapter.updateChannelIconForView(child, channelId);
-                                }
-                            }
-                        }
-                    }
-                });
-            }
-        });
+        // One shared fallback listener (notPipe 0.4 pattern): when a channel icon resolves in the background.
+        relatedAdapter.setChannelIconResolveListener(iconRefreshListenerShared());
 
         commentsAdapter = new CommentAdapter(this, R.layout.item_comment, comments);
+        commentsAdapter.setChannelIconResolveListener(iconRefreshListenerShared());
+        commentsAdapter.setOnChannelClickListener(commentChannelClick());
         // NewPipe-style inline replies (see toggleCommentReplies)
         commentsAdapter.setOnRepliesToggleListener(new CommentAdapter.OnRepliesToggleListener() {
             public void onToggleReplies(Comment comment) {
@@ -277,8 +267,6 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
     }
 
     private void handleVideoClick(int position) {
-        ImageLoader.clearCache();
-        System.gc();
         Intent intent = new Intent(context, VideoActivity.class);
         intent.putExtra("ID", relatedVideos.get(position).id);
         context.startActivity(intent);
@@ -345,8 +333,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
             AdapterLinearLayout activeList = (AdapterLinearLayout) activeView;
             if (activeList.getChildCount() == 0) return;
 
-            // Outermost ScrollView ancestor: scroll_view in portrait,
-            // tabs_scroll_view in landscape.
+            // Outermost ScrollView ancestor: scroll_view in portrait, tabs_scroll_view in landscape.
             ScrollView activeScrollView = null;
             ViewParent parent = activeList.getParent();
             while (parent != null) {
@@ -386,12 +373,18 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                         relatedAdapter.loadImagesForView(child);
                     } else {
                         commentsAdapter.loadImagesForView(child);
-                        // The last row scrolled in: the next comments page
-                        // loads (NewPipe's infinite comments).
+                        // The last row scrolled in: the next comments page loads (NewPipe's infinite comments).
                         if (i == activeList.getChildCount() - 1 && commentsLoaded
                                 && commentsMoreUrl != null && !commentsMoreLoading) {
                             loadMoreComments();
                         }
+                    }
+                } else {
+                    // Free native memory when items scroll off-screen
+                    if ("related".equals(currentTab)) {
+                        relatedAdapter.resetImageView(child);
+                    } else {
+                        commentsAdapter.resetImageView(child);
                     }
                 }
             }
@@ -405,11 +398,9 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         public void run() {
             if (videoView != null && videoPrepared) {
                 try {
-                    if (videoView.isPlaying()) {
-                        int pos = videoView.getCurrentPosition();
-                        if (pos > 0) {
-                            videoPosition = pos;
-                        }
+                    int pos = videoView.getCurrentPosition();
+                    if (pos > 0) {
+                        videoPosition = pos;
                     }
                 } catch (Exception ignored) {}
             }
@@ -451,8 +442,6 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
             if (video.length > 3600) {
                 quality = "360";
                 Toast.makeText(context, R.string.long_360, Toast.LENGTH_LONG).show();
-            } else if ("1080".equals(quality)) {
-                Toast.makeText(context, R.string.experimental_1080, Toast.LENGTH_LONG).show();
             }
         }
 
@@ -502,8 +491,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         } catch (Exception ignored) {}
     }
 
-    /** Declares the source dead (except local files) and retries the
-     *  stream, or gives up with a message after MAX_STREAM_RETRIES. */
+    /** Declares the source dead (except local files) and retries the stream. */
     private void handleStreamFailure(boolean keepInstance, String giveUpMessage) {
         resetVideo();
         boolean isOffline = !Utils.hasConnection(context);
@@ -547,6 +535,13 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                 ? Manager.getInstance().getVideoInstances()
                 : Manager.getInstance().getHqInstances();
 
+        // Reuse the Metadata instance as the stream source whenever possible,
+        // since it already served this video and can avoid a redundant request
+        VideoStream metadataStream = Manager.getInstance().resolveVideoStream(api);
+        if (metadataStream != null && targetList.contains(metadataStream)) {
+            return metadataStream;
+        }
+
         if (config.isConvertVideos()) {
             List<Conversion> conversions = Manager.getInstance().getConversion();
             List<VideoStream> convInstances = new ArrayList<VideoStream>();
@@ -567,8 +562,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         return null;
     }
 
-    /** Only HQ-list instances (yt2009/YtApiLegacy) can serve 480p+;
-     *  Piped/Invidious ignore the quality argument and return 360p. */
+    /** Only HQ-list instances (yt2009/YtApiLegacy) can serve 480p+; Piped/Invidious ignore the quality argument. */
     private boolean instanceServesQuality(VideoStream instance, String quality) {
         if (instance == null) return false;
         if (quality == null || "360".equals(quality)) return true;
@@ -615,8 +609,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
     private boolean hasSoftwareKeys() {
         if (NotPipe.SDK < 14) return false;
         try {
-            // Physical Menu/Back keys mean no on-screen nav bar (Samsung
-            // tablet black-bar glitch fix).
+            // Physical Menu/Back keys mean no on-screen nav bar (Samsung tablet black-bar glitch fix).
             android.view.ViewConfiguration viewConfig = android.view.ViewConfiguration.get(this);
             boolean hasMenuKey = ((Boolean) viewConfig.getClass().getMethod("hasPermanentMenuKey").invoke(viewConfig)).booleanValue();
             boolean hasBackKey = android.view.KeyCharacterMap.deviceHasKey(android.view.KeyEvent.KEYCODE_BACK);
@@ -840,7 +833,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                             return;
                         }
 
-                        handleStreamFailure(isLocalFile, "Stream failed after multiple attempts.");
+                        handleStreamFailure(isLocalFile, getString(R.string.stream_failed_retries));
                     }
                 });
                 return true;
@@ -930,20 +923,70 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         }
         cancelVideoTimeout();
         stopPositionTracking();
-        ImageLoader.clearCache();
+        externalPlayerHandler.removeCallbacks(externalPlayerRestoreRunnable);
+        releaseImageViews();
 
         // Cancel in-flight tasks
         if (loadVideoTask != null) loadVideoTask.cancel(true);
         if (resolveStreamTask != null) resolveStreamTask.cancel(true);
         if (downloadVideoTask != null) downloadVideoTask.cancel(true);
+        if (userDownloadTask != null) userDownloadTask.cancel(true);
         if (loadCommentsTask != null) loadCommentsTask.cancel(true);
         if (loadRelatedTask != null) loadRelatedTask.cancel(true);
         if (loadMoreCommentsTask != null) loadMoreCommentsTask.cancel(true);
     }
 
-    /** ConnectivityMonitor: the network was down and is back. When the
-     *  video metadata never arrived (offline error) the page is retried;
-     *  a page that already plays or shows its info is left untouched. */
+    /** Detaches image views and cancels their pending loads so this activity can be collected after navigation. */
+    private void releaseImageViews() {
+        ImageLoader.releaseView(thumbnail);
+        ImageLoader.releaseView(channelThumbnail);
+        if (relatedList instanceof ViewGroup) {
+            ViewGroup relatedViewGroup = (ViewGroup) relatedList;
+            for (int i = 0; i < relatedViewGroup.getChildCount(); i++) {
+                relatedAdapter.resetImageView(relatedViewGroup.getChildAt(i));
+            }
+        }
+        if (commentsList instanceof ViewGroup) {
+            ViewGroup commentsViewGroup = (ViewGroup) commentsList;
+            for (int i = 0; i < commentsViewGroup.getChildCount(); i++) {
+                commentsAdapter.resetImageView(commentsViewGroup.getChildAt(i));
+            }
+        }
+    }
+
+    /** Creates a shared fallback listener that reloads channel icons of visible rows in the currently active tab once. */
+    private ChannelIconResolver.OnIconResolvedListener createChannelIconRefreshListener() {
+        return new ChannelIconResolver.OnIconResolvedListener() {
+            @Override
+            public void onIconResolved(final String channelId, final String url) {
+                if (url == null || url.length() == 0) return;
+                // persist: heals the feed and subscriptions too
+                Subscriptions.setAvatar(channelId, url);
+                TabHost tabHost = (TabHost) findViewById(android.R.id.tabhost);
+                if (tabHost == null) return;
+                String currentTab = tabHost.getCurrentTabTag();
+                if ("related".equals(currentTab)) {
+                    refreshChannelIcons(relatedAdapter, relatedList, relatedLoaded, channelId);
+                } else if ("comments".equals(currentTab)) {
+                    refreshChannelIcons(commentsAdapter, commentsList, commentsLoaded, channelId);
+                }
+            }
+        };
+    }
+
+    /** Reloads channel icons of all children of the given list that belong to the resolved channel. */
+    private void refreshChannelIcons(ChannelIconRefreshable adapter, View listView, boolean loaded, String channelId) {
+        if (!loaded || !(listView instanceof ViewGroup)) return;
+        ViewGroup vg = (ViewGroup) listView;
+        for (int i = 0; i < vg.getChildCount(); i++) {
+            View child = vg.getChildAt(i);
+            if (child != null) {
+                adapter.updateChannelIconForView(child, channelId);
+            }
+        }
+    }
+
+    /** ConnectivityMonitor: the network was down and is back. */
     public void onConnectionRestored() {
         if (isActivityStopped || isFinishing()) return;
         if (video != null) return; // metadata already on screen
@@ -998,8 +1041,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
     @Override
     protected void onResume() {
         super.onResume();
-        // Reconnect watcher: retries a failed metadata load once the
-        // network is back while this screen is the visible one.
+        // Reconnect watcher: retries a failed metadata load once the network is back while this screen is the visible one.
         ConnectivityMonitor.register(this);
         // Resume the subtitle ticker stopped in onPause.
         if (subtitles != null) {
@@ -1125,9 +1167,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
             landscapeTabContainer.setVisibility(isFullscreenMode ? View.GONE : View.VISIBLE);
             portraitTabContainer.setVisibility(View.GONE);
 
-            // The video column keeps the classic arrangement: video on
-            // top, channel info + like/share buttons below it; only the
-            // tabs move to the right column.
+            // The video column keeps the classic arrangement: video on top, channel info + like/share buttons below it.
             landscapeTabContainer.addView(tabHost, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.FILL_PARENT,
                     ViewGroup.LayoutParams.FILL_PARENT
@@ -1165,9 +1205,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         triggerLayoutFix(tabHost);
     }
 
-    /** Hides the dummy tab, but only when it exists: on tablets below
-     *  Android 3.0 no dummy is added and tab 0 is the real "Related"
-     *  tab, which the unconditional hide used to swallow. */
+    /** Hides the dummy tab, but only when it exists (tablets below Android 3.0 add none). */
     private void hideDummyTabIfNeeded() {
         if (hasDummyTab) hideDummyTab();
     }
@@ -1211,8 +1249,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
             ((View) tabHost.getParent()).setVisibility(View.GONE);
         }
 
-        // (TabHost's parent is the tablet side container, so the parent
-        // hide above collapses it too.)
+        // (TabHost's parent is the tablet side container, so the parent hide above collapses it too.)
         FrameLayout.LayoutParams videoParams = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.FILL_PARENT, ViewGroup.LayoutParams.FILL_PARENT);
         videoParams.gravity = android.view.Gravity.CENTER;
         videoView.setLayoutParams(videoParams);
@@ -1327,20 +1364,40 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         } else if (commentsList instanceof AdapterLinearLayout) {
             ((AdapterLinearLayout) commentsList).setAdapter(commentsAdapter);
         }
+
+    }
+
+    /** Field holding the one shared icon-refresh listener. */
+    private ChannelIconResolver.OnIconResolvedListener sharedIconListener;
+
+    private ChannelIconResolver.OnIconResolvedListener iconRefreshListenerShared() {
+        if (sharedIconListener == null) {
+            sharedIconListener = createChannelIconRefreshListener();
+        }
+        return sharedIconListener;
+    }
+
+    private void openChannel(String channelId) {
+        if (channelId == null || channelId.length() == 0) return;
+        Intent intent = new Intent(VideoActivity.this, ChannelActivity.class);
+        intent.putExtra("ID", channelId);
+        startActivity(intent);
+    }
+
+    private io.github.gohoski.notpipe.ui.CommentAdapter.OnChannelClickListener commentChannelClick() {
+        return new io.github.gohoski.notpipe.ui.CommentAdapter.OnChannelClickListener() {
+            @Override
+            public void onChannelClick(String channelId) {
+                openChannel(channelId);
+            }
+        };
     }
 
     private void setupClickListeners() {
         findViewById(R.id.share).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                try {
-                    startActivity(Intent.createChooser(
-                            new Intent(android.content.Intent.ACTION_SEND)
-                                    .setType("text/plain")
-                                    .putExtra(android.content.Intent.EXTRA_TEXT, "https://youtu.be/" + videoId)
-                                    .putExtra(android.content.Intent.EXTRA_SUBJECT, video != null ? video.title : ""),
-                            getString(R.string.share)));
-                } catch (android.content.ActivityNotFoundException ignored) {}
+                showShareMenuDialog();
             }
         });
 
@@ -1397,8 +1454,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                             pad = (int) TypedValue.applyDimension(
                                     TypedValue.COMPLEX_UNIT_DIP, 12, getResources().getDisplayMetrics());
                         }
-                        // Reuse the recycled row: allocating a fresh TextView
-                        // per scroll frame made this dialog stutter horribly.
+                        // Reuse the recycled row: allocating a fresh TextView per scroll frame made this dialog stutter horribly.
                         TextView textView = convertView instanceof TextView
                                 ? (TextView) convertView : new TextView(context);
                         if (item instanceof String) {
@@ -1484,8 +1540,6 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                 Intent intent = new Intent(VideoActivity.this, ChannelActivity.class);
                 intent.putExtra("ID", video.channelId);
                 startActivity(intent);
-                ImageLoader.clearCache();
-                System.gc();
             }
         });
 
@@ -1530,8 +1584,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
             tabHost.clearAllTabs();
         }
         tabHost.setup();
-        // Holo randomly drops the first tab in tablet landscape: a hidden
-        // dummy tab absorbs the bug.
+        // Holo randomly drops the first tab in tablet landscape: a hidden dummy tab absorbs the bug.
         boolean hasDummy = false;
         if (isTablet() && NotPipe.SDK >= 11) {
             tabHost.addTab(tabHost.newTabSpec("dummy").setIndicator("").setContent(new TabHost.TabContentFactory() {
@@ -1608,7 +1661,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
             @Override
             public void run() {
                 // runs on the UI thread
-                handleStreamFailure(false, "Video stream timed out after multiple attempts.");
+                handleStreamFailure(false, getString(R.string.stream_timeout_retries));
             }
         };
         videoTimeoutHandler.postDelayed(videoTimeoutRunnable, videoBufferTimeout);
@@ -1649,8 +1702,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
 
     private void loadComments() {
         if (video == null) {
-            // Video data still loading: run this as soon as it lands, so a
-            // tap on the tab is never lost (it used to do nothing).
+            // Video data still loading: run this as soon as it lands, so a tap on the tab is never lost (it used to do nothing).
             pendingTab = "comments";
             commentsLoading.setVisibility(View.VISIBLE);
             return;
@@ -1699,8 +1751,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         loadMoreCommentsTask.execute(commentsMoreUrl);
     }
 
-    /** Android 4.0-4.3 fix: setVideoURI off the UI thread (async player
-     *  init setting), otherwise the MediaPlayer hangs the whole UI. */
+    /** Android 4.0-4.3 fix: setVideoURI off the UI thread (async player init setting) */
     private void executeAsyncSetVideoUri(final String targetUrl) {
         new Thread(new Runnable() {
             @Override
@@ -1792,8 +1843,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         }
     }
 
-    /** Android 4.1/TouchWiz fix: a playing video can make the tab
-     *  contents disappear unless the layout is invalidated. */
+    /** Android 4.1/TouchWiz fix: a playing video can make the tab contents disappear unless the layout is invalidated. */
     private void triggerLayoutFix(final View targetView) {
         if (targetView == null) return;
         targetView.post(new Runnable() {
@@ -1802,8 +1852,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                 targetView.requestLayout();
                 targetView.invalidate();
 
-                // Tablets skip the scroll nudge: it stutters their
-                // side-by-side layout.
+                // Tablets skip the scroll nudge: it stutters their side-by-side layout.
                 if (!isTablet()) {
                     // 1-pixel scroll nudge to force a re-render
                     if (scrollView != null) {
@@ -1870,8 +1919,8 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
             }
         }
 
-        ImageLoader.loadImage(video.thumbnail, thumbnail, false, null);
-        ImageLoader.loadImage(video.channelThumbnail, channelThumbnail, false, null);
+        ImageLoader.loadImage(video.thumbnail, thumbnail, true, null);
+        ImageLoader.loadImage(video.channelThumbnail, channelThumbnail, true, null);
 
         View tabHostView = findViewById(android.R.id.tabhost);
         if (tabHostView != null) {
@@ -1880,8 +1929,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
 
         loadRelatedVideos();
 
-        // A tab tapped while the video was still loading now loads at once
-        // (the first tap used to be silently lost).
+        // A tab tapped while the video was still loading now loads at once (the first tap used to be silently lost).
         if ("comments".equals(pendingTab)) {
             pendingTab = null;
             TabHost pendingHost = (TabHost) findViewById(android.R.id.tabhost);
@@ -1913,8 +1961,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
             boolean isPortrait = getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT;
             fullscreenItem.setVisible(isPortrait && !isFullscreenMode);
         }
-        // The overlay needs the internal VideoView: hidden when an
-        // external player does the playback.
+        // The overlay needs the internal VideoView: hidden when an external player does the playback.
         MenuItem subtitlesItem = menu.findItem(R.id.action_subtitles);
         if (subtitlesItem != null) {
             subtitlesItem.setVisible(!config.isUseExternalPlayer());
@@ -1956,9 +2003,496 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
     }
 
     /** Quality picker with the 1080p warning and duration checks. */
+    private void showShareMenuDialog() {
+        final String[] options = new String[] {
+                getString(R.string.copy_link),
+                getString(R.string.download),
+                getString(R.string.share)
+        };
+
+        new AlertDialog.Builder(context)
+                .setTitle(R.string.share_menu_title)
+                .setItems(options, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        dialog.dismiss();
+                        switch (which) {
+                            case 0: // Copy link
+                                copyVideoLink();
+                                break;
+                            case 1: // Download
+                                showDownloadOptionsDialog();
+                                break;
+                            case 2: // Share in apps
+                                shareVideoIntent();
+                                break;
+                        }
+                    }
+                })
+                .show();
+    }
+
+    @SuppressWarnings("deprecation")
+    private void copyVideoLink() {
+        String url = "https://youtu.be/" + videoId;
+        // android.text.ClipboardManager is compatible from Android 1.5 to modern Android
+        android.text.ClipboardManager clipboard = (android.text.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            clipboard.setText(url);
+            Toast.makeText(context, R.string.link_copied, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void shareVideoIntent() {
+        try {
+            startActivity(Intent.createChooser(
+                    new Intent(Intent.ACTION_SEND)
+                            .setType("text/plain")
+                            .putExtra(Intent.EXTRA_TEXT, "https://youtu.be/" + videoId)
+                            .putExtra(Intent.EXTRA_SUBJECT, video != null ? video.title : ""),
+                    getString(R.string.share)));
+        } catch (android.content.ActivityNotFoundException ignored) {}
+    }
+
+    /** Renders the download dialog: folder path, quality, instance and progress. */
+    private void showDownloadOptionsDialog() {
+        if (video == null) {
+            Toast.makeText(context, R.string.wait_for_load, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        int pad = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16, getResources().getDisplayMetrics());
+
+        LinearLayout layout = new LinearLayout(context);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(pad, pad / 2, pad, 0);
+
+        TextView folderLabel = new TextView(context);
+        folderLabel.setText(R.string.download_folder);
+        folderLabel.setTypeface(null, Typeface.BOLD);
+        folderLabel.setPadding(0, pad / 2, 0, 0);
+        layout.addView(folderLabel);
+
+        String savedFolder = config.getDownloadFolder();
+        if (savedFolder == null || savedFolder.trim().length() == 0) {
+            savedFolder = Config.DEFAULT_DOWNLOAD_FOLDER;
+        }
+        final EditText folderEdit = new EditText(context);
+        folderEdit.setSingleLine(true);
+        folderEdit.setText(savedFolder);
+        folderEdit.setSelection(savedFolder.length());
+        layout.addView(folderEdit);
+
+        final String[] displayQualities = getResources().getStringArray(R.array.qualities);
+        final String[] qualities = new String[displayQualities.length];
+        for (int i = 0; i < displayQualities.length; i++) {
+            qualities[i] = displayQualities[i].replace("p", "");
+        }
+
+        LinearLayout qualityRow = new LinearLayout(context);
+        qualityRow.setOrientation(LinearLayout.HORIZONTAL);
+        qualityRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView qualityLabel = new TextView(context);
+        qualityLabel.setText(R.string.video_quality);
+        qualityLabel.setTypeface(null, Typeface.BOLD);
+        qualityLabel.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
+        qualityRow.addView(qualityLabel);
+        final Spinner qualitySpinner = new Spinner(context);
+        ArrayAdapter<CharSequence> qualityAdapter = ArrayAdapter.createFromResource(context, R.array.qualities, android.R.layout.simple_spinner_item);
+        qualityAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        qualitySpinner.setAdapter(qualityAdapter);
+        setSpinnerSelection(qualitySpinner, config.getPreferredQuality() + "p");
+        qualityRow.addView(qualitySpinner, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        layout.addView(qualityRow);
+
+        final List<Manager.InstanceInfo> instances = Manager.getInstance().videoInstancesInfo();
+        final List<Object> instanceItems = new ArrayList<Object>();
+        Manager.InstanceInfo autoEntry = new Manager.InstanceInfo();
+        autoEntry.host = getString(R.string.auto);
+        instanceItems.add(autoEntry);
+        String currentApiType = "";
+        for (int i = 0; i < instances.size(); i++) {
+            Manager.InstanceInfo info = instances.get(i);
+            if (!info.name.equals(currentApiType)) {
+                currentApiType = info.name;
+                instanceItems.add(currentApiType);
+            }
+            instanceItems.add(info);
+        }
+
+        int initialPos = resolvePinnedInstancePosition(instanceItems);
+        final Manager.InstanceInfo[] selectedInstance = new Manager.InstanceInfo[] {
+                (Manager.InstanceInfo) instanceItems.get(initialPos)
+        };
+
+        LinearLayout instanceRow = new LinearLayout(context);
+        instanceRow.setOrientation(LinearLayout.HORIZONTAL);
+        instanceRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView instanceLabel = new TextView(context);
+        instanceLabel.setText(R.string.instance);
+        instanceLabel.setTypeface(null, Typeface.BOLD);
+        instanceLabel.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
+        instanceRow.addView(instanceLabel);
+
+        final Button instanceButton = new Button(context);
+        instanceButton.setText(selectedInstance[0].host);
+        instanceButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                BaseAdapter instanceAdapter = new BaseAdapter() {
+                    @Override
+                    public int getCount() {
+                        return instanceItems.size();
+                    }
+
+                    @Override
+                    public Object getItem(int position) {
+                        return instanceItems.get(position);
+                    }
+
+                    @Override
+                    public long getItemId(int position) {
+                        return position;
+                    }
+
+                    @Override
+                    public boolean isEnabled(int position) {
+                        return instanceItems.get(position) instanceof Manager.InstanceInfo;
+                    }
+
+                    @Override
+                    public View getView(int position, View convertView, ViewGroup parent) {
+                        Object item = instanceItems.get(position);
+                        TextView textView = new TextView(context);
+                        int padding = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12, getResources().getDisplayMetrics());
+                        if (item instanceof String) {
+                            textView.setText((String) item);
+                            textView.setPadding(padding, padding, padding, padding / 2);
+                            textView.setTypeface(null, Typeface.BOLD);
+                            textView.setTextColor(android.graphics.Color.WHITE);
+                            textView.setBackgroundColor(android.graphics.Color.DKGRAY);
+                            textView.setTextSize(12);
+                        } else {
+                            Manager.InstanceInfo info = (Manager.InstanceInfo) item;
+                            textView.setText(info.host);
+                            textView.setPadding(padding * 2, padding, padding, padding);
+                            textView.setTextSize(16);
+                            if (NotPipe.SDK < 11) textView.setTextColor(android.graphics.Color.BLACK);
+                        }
+                        return textView;
+                    }
+                };
+
+                new AlertDialog.Builder(context)
+                        .setTitle(R.string.select_ins)
+                        .setAdapter(instanceAdapter, new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface dialog, int which) {
+                                Object selected = instanceItems.get(which);
+                                if (selected instanceof Manager.InstanceInfo) {
+                                    selectedInstance[0] = (Manager.InstanceInfo) selected;
+                                    instanceButton.setText(selectedInstance[0].host);
+                                }
+                            }
+                        })
+                        .show();
+            }
+        });
+        instanceRow.addView(instanceButton, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        layout.addView(instanceRow);
+
+        ScrollView scroll = new ScrollView(context);
+        scroll.addView(layout);
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(context)
+                .setTitle(R.string.download)
+                .setView(scroll)
+                .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface dialogInterface, int i) {}
+                })
+                .setNegativeButton(android.R.string.cancel, new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface dialogInterface, int i) {}
+                });
+        final AlertDialog dialog = builder.create();
+        dialog.show();
+
+        // Override positive button to validate the folder path before dismissing
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String path = folderEdit.getText().toString().trim();
+                if (path.length() == 0 || !path.startsWith("/")) {
+                    Toast.makeText(context, R.string.invalid_path, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                if (!path.equals(config.getDownloadFolder())) {
+                    config.setDownloadFolder(path);
+                    ConfigManager.getInstance().saveConfig(config);
+                    config = ConfigManager.getInstance().getConfig();
+                }
+                String selectedQuality = qualities[qualitySpinner.getSelectedItemPosition()];
+                VideoStream pinnedInstance = selectedInstance[0] != null ? selectedInstance[0].instance : null;
+                dialog.dismiss();
+                startVideoDownload(selectedQuality, pinnedInstance);
+            }
+        });
+    }
+
+    /** Finds the dropdown index of the stream instance currently serving this video. */
+    private int resolvePinnedInstancePosition(List<Object> items) {
+        String currentHost = videoStream != null ? videoStream.getHost() : null;
+        int fallback = 0;
+        for (int i = 0; i < items.size(); i++) {
+            Object item = items.get(i);
+            if (!(item instanceof Manager.InstanceInfo)) continue;
+            Manager.InstanceInfo info = (Manager.InstanceInfo) item;
+            if (info.instance == null) {
+                fallback = i;
+            } else if (currentHost != null && currentHost.equals(info.host)) {
+                return i;
+            }
+        }
+        return fallback;
+    }
+
+    private void setSpinnerSelection(Spinner spinner, String value) {
+        for (int i = 0; i < spinner.getCount(); i++) {
+            if (spinner.getItemAtPosition(i).toString().equals(value)) {
+                spinner.setSelection(i);
+                return;
+            }
+        }
+    }
+
+    private void startVideoDownload(String quality, VideoStream pinnedInstance) {
+        if (!Environment.MEDIA_MOUNTED.equals(Environment.getExternalStorageState())) {
+            Toast.makeText(context, R.string.sd_card, Toast.LENGTH_LONG).show();
+            return;
+        }
+        userDownloadTask = new UserDownloadTask(quality, pinnedInstance);
+        userDownloadTask.execute(videoId);
+    }
+
+    private class UserDownloadTask extends AsyncTask<String, Integer, File> {
+        private final String quality;
+        private final VideoStream pinnedInstance;
+        private android.app.ProgressDialog progressDialog;
+        private String errorMessage = null;
+        private boolean isNoSpaceError = false;
+
+        UserDownloadTask(String quality, VideoStream pinnedInstance) {
+            this.quality = quality;
+            this.pinnedInstance = pinnedInstance;
+        }
+
+        @Override
+        protected void onPreExecute() {
+            progressDialog = new android.app.ProgressDialog(context);
+            progressDialog.setTitle(getString(R.string.download));
+            progressDialog.setMessage(getString(R.string.resolving_stream));
+            progressDialog.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
+            progressDialog.setMax(100);
+            progressDialog.setIndeterminate(true);
+            progressDialog.setCancelable(true);
+            progressDialog.setButton(DialogInterface.BUTTON_NEGATIVE, context.getString(android.R.string.cancel), new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface dialog, int which) {
+                    cancel(true);
+                }
+            });
+            progressDialog.setOnCancelListener(new DialogInterface.OnCancelListener() {
+                @Override
+                public void onCancel(DialogInterface dialog) {
+                    cancel(true);
+                }
+            });
+            progressDialog.show();
+        }
+
+        @Override
+        protected File doInBackground(String... params) {
+            String targetVideoId = params[0];
+            String streamUrl = null;
+            int timeout = getTimeoutForQuality(quality);
+
+            try {
+                Utils.waitForConnection(context);
+
+                // 1. Resolve the stream URL
+                if (pinnedInstance != null) {
+                    try {
+                        streamUrl = pinnedInstance.getVideoUrl(targetVideoId, quality, timeout);
+                    } catch (io.github.gohoski.notpipe.api.ContentUnavailableException e) {
+                        e.printStackTrace();
+                        errorMessage = e.getMessage();
+                        return null;
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        errorMessage = context.getString(R.string.download_instance_failed, pinnedInstance.getHost());
+                        return null;
+                    }
+                } else if ("360".equals(quality)) {
+                    if (video != null && video.videoUrl != null && video.videoUrl.length() > 0) {
+                        streamUrl = video.videoUrl;
+                    } else {
+                        VideoStream stream = Manager.getInstance().resolveVideoStream(api);
+                        if (stream != null) {
+                            try {
+                                streamUrl = stream.getVideoUrl(targetVideoId, "360", timeout);
+                            } catch (Exception ignored) {}
+                        }
+                        if (streamUrl == null) {
+                            streamUrl = Manager.getInstance().getVideoUrl(targetVideoId, "360", timeout, null, null);
+                        }
+                    }
+                } else {
+                    streamUrl = Manager.getInstance().getVideoUrl(targetVideoId, quality, timeout, null, null);
+                }
+
+                if (isCancelled() || streamUrl == null) return null;
+
+                // 2. Destination directory & filename
+                String folderPath = config.getDownloadFolder();
+                if (folderPath == null || folderPath.trim().length() == 0 || !folderPath.startsWith("/")) {
+                    folderPath = Config.DEFAULT_DOWNLOAD_FOLDER;
+                }
+                File downloadDir = new File(folderPath.trim());
+                if (!downloadDir.exists()) downloadDir.mkdirs();
+
+                android.os.StatFs stat = new android.os.StatFs(downloadDir.getPath());
+                long availableSpace = (long) stat.getBlockSize() * (long) stat.getAvailableBlocks();
+                if (availableSpace < 150L * 1024L * 1024L) {
+                    isNoSpaceError = true;
+                    return null;
+                }
+
+                String sanitizedTitle = (video != null && video.title != null)
+                        ? video.title.replaceAll("[\\/:*?\"<>|]", "_").trim()
+                        : targetVideoId;
+                if (sanitizedTitle.length() == 0) sanitizedTitle = targetVideoId;
+
+                File destinationFile = new File(downloadDir, sanitizedTitle + "_" + quality + "p.mp4");
+
+                // 3. Download with progress + speed reporting
+                HttpClient.downloadToFile(streamUrl, destinationFile.getAbsolutePath(), timeout, new HttpClient.DownloadProgressListener() {
+                    private long lastUpdateTime = 0;
+                    private long lastUpdateBytes = 0;
+
+                    @Override
+                    public boolean onProgress(long bytesDownloaded, long totalBytes) {
+                        if (isCancelled()) return false;
+                        long currentTime = System.currentTimeMillis();
+                        if (lastUpdateTime == 0) {
+                            lastUpdateTime = currentTime;
+                            lastUpdateBytes = bytesDownloaded;
+                            return true;
+                        }
+
+                        long timeElapsed = currentTime - lastUpdateTime;
+                        if (timeElapsed >= 500) {
+                            long bytesSentInInterval = bytesDownloaded - lastUpdateBytes;
+                            int speedKB = 0;
+                            if (timeElapsed > 0) {
+                                speedKB = (int) ((bytesSentInInterval * 1000) / (timeElapsed * 1024));
+                            }
+                            int percent = -1;
+                            if (totalBytes > 0) {
+                                percent = (int) ((bytesDownloaded * 100) / totalBytes);
+                            }
+                            publishProgress(percent, speedKB, (int) (bytesDownloaded / 1024));
+                            lastUpdateTime = currentTime;
+                            lastUpdateBytes = bytesDownloaded;
+                        }
+                        return true;
+                    }
+                });
+
+                if (isCancelled()) return null;
+                return destinationFile;
+
+            } catch (Exception e) {
+                e.printStackTrace();
+                errorMessage = e.getMessage();
+                if (e instanceof IOException && errorMessage != null &&
+                        (errorMessage.toLowerCase().contains("no space left") || errorMessage.contains("ENOSPC"))) {
+                    isNoSpaceError = true;
+                }
+                return null;
+            }
+        }
+
+        @Override
+        protected void onProgressUpdate(Integer... values) {
+            if (isCancelled() || progressDialog == null || !progressDialog.isShowing()) return;
+
+            if (progressDialog.isIndeterminate()) {
+                progressDialog.setIndeterminate(false);
+                progressDialog.setMessage(getString(R.string.downloading));
+            }
+
+            if (values.length >= 2) {
+                int percent = values[0];
+                int speedKB = values[1];
+                if (percent >= 0) {
+                    progressDialog.setProgress(percent);
+                    progressDialog.setMessage(getString(R.string.download_speed_only, speedKB));
+                } else if (values.length >= 3) {
+                    double downloadedMB = values[2] / 1024.0;
+                    progressDialog.setMessage(getString(R.string.download_progress_mb, downloadedMB, speedKB));
+                }
+            }
+        }
+
+        @Override
+        protected void onPostExecute(File resultFile) {
+            if (progressDialog != null && progressDialog.isShowing()) {
+                progressDialog.dismiss();
+            }
+
+            if (isNoSpaceError) {
+                Toast.makeText(context, R.string.sd_card_space, Toast.LENGTH_LONG).show();
+                return;
+            }
+
+            if (resultFile != null && resultFile.exists()) {
+                Toast.makeText(context, getString(R.string.download_complete, resultFile.getName()), Toast.LENGTH_LONG).show();
+                // Notify the media scanner so the video appears in Gallery
+                try {
+                    sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(resultFile)));
+                } catch (Exception ignored) {}
+            } else {
+                if (errorMessage != null && errorMessage.length() > 0) {
+                    Toast.makeText(context, errorMessage, Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(context, R.string.download_failed, Toast.LENGTH_SHORT).show();
+                }
+            }
+        }
+
+        @Override
+        protected void onCancelled() {
+            if (progressDialog != null && progressDialog.isShowing()) {
+                progressDialog.dismiss();
+            }
+        }
+    }
+
+    /** Launches an external player for the given video URI. */
+    private void launchExternalPlayer(Uri data) {
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        intent.setDataAndType(data, "video/mp4");
+        try {
+            startActivity(intent);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        externalPlayerHandler.removeCallbacks(externalPlayerRestoreRunnable);
+        externalPlayerHandler.postDelayed(externalPlayerRestoreRunnable, EXTERNAL_PLAYER_RESTORE_DELAY);
+    }
+
     private void showQualityDialog() {
         if (video == null) {
-            Toast.makeText(context, "Please wait for video to load", Toast.LENGTH_SHORT).show();
+            Toast.makeText(context, R.string.wait_for_load, Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -2049,9 +2583,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
             if (config.isConvertVideos() || !"360".equals(newQuality) || video.videoUrl == null || video.videoUrl.length() == 0) {
                 isUsingMetadataUrl = false;
 
-                // The instance that served 360p cannot serve 720p/1080p
-                // (Piped/Invidious ignore the quality argument): re-pick
-                // from the HQ-capable pool.
+                // The instance that served 360p cannot serve 720p/1080p (Piped/Invidious ignore the quality argument)
                 ensureInstanceForQuality(newQuality);
 
                 resolveStreamTask = new ResolveStreamTask(videoStream, newQuality);
@@ -2101,13 +2633,19 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         }
     }
 
-    private class ResolveStreamTask extends AsyncTask<String, Void, String> {
+    private class ResolveStreamTask extends AsyncTask<String, String, String> {
         private VideoStream targetInstance;
         private VideoStream[] successInstance = new VideoStream[1];
         private String errorMessage;
         private boolean isFileNotFound;
         private String requestedQuality;
         private String taskQuality;
+        private final Manager.InstanceAttemptListener attemptListener = new Manager.InstanceAttemptListener() {
+            @Override
+            public void onInstanceAttempt(VideoStream instance) {
+                publishProgress(instance.getHost());
+            }
+        };
 
         ResolveStreamTask(VideoStream targetInstance) {
             this.targetInstance = targetInstance;
@@ -2121,8 +2659,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         @Override
         protected void onPreExecute() {
             if (targetInstance == null) {
-                // Reuse the picked instance only if it serves the quality
-                // (a stale 360p-era pick would silently return 360p).
+                // Reuse the picked instance only if it serves the quality (a stale 360p-era pick would silently return 360p).
                 String quality = taskQuality != null ? taskQuality : config.getPreferredQuality();
                 ensureInstanceForQuality(quality);
             } else {
@@ -2154,8 +2691,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                 requestedQuality = quality;
                 // Keep one dead node from eating the whole buffer budget.
                 int timeout = Math.min(getTimeoutForQuality(quality), 40000);
-                // A 360p-era instance cannot serve HQ: null it so the
-                // Manager iterates the HQ-capable list instead.
+                // A 360p-era instance cannot serve HQ: null it so the Manager iterates the HQ-capable list instead.
                 if (targetInstance != null && !config.isConvertVideos()
                         && !"360".equals(quality)
                         && !Manager.getInstance().getHqInstances().contains(targetInstance)) {
@@ -2165,7 +2701,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                     try {
                         if (config.isConvertVideos() && targetInstance instanceof Conversion) {
                             if (isCancelled()) return null;
-                            return ((Conversion) targetInstance).getConvUrl(id, config.getConvertCodec());
+                            return ((Conversion) targetInstance).getConvUrl(id, Codec.fromIndex(config.getConvertCodec()));
                         }
                         if (isCancelled()) return null;
                         return targetInstance.getVideoUrl(id, quality, timeout);
@@ -2185,8 +2721,8 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                 }
                 if (isCancelled()) return null;
                 if (config.isConvertVideos())
-                    return Manager.getInstance().getConvUrl(id, quality, config.getConvertCodec(), targetInstance, successInstance);
-                return Manager.getInstance().getVideoUrl(id, quality, timeout, targetInstance, successInstance);
+                    return Manager.getInstance().getConvUrl(id, quality, Codec.fromIndex(config.getConvertCodec()), targetInstance, successInstance, attemptListener);
+                return Manager.getInstance().getVideoUrl(id, quality, timeout, targetInstance, successInstance, attemptListener);
             } catch (java.io.FileNotFoundException e) {
                 isFileNotFound = true;
                 errorMessage = e.getMessage();
@@ -2194,6 +2730,14 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
             } catch (Exception e) {
                 errorMessage = e.getMessage();
                 return null;
+            }
+        }
+
+        @Override
+        protected void onProgressUpdate(String... values) {
+            if (isCancelled()) return;
+            if (values != null && values.length > 0 && values[0] != null) {
+                updatePlaybackViaText(values[0]);
             }
         }
 
@@ -2231,7 +2775,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                     if (targetInstance != null) {
                         Manager.getInstance().removeDeadInstance(targetInstance);
                     }
-                    Toast.makeText(context, "All instances failed to provide video.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(context, R.string.all_instances_failed, Toast.LENGTH_SHORT).show();
                 } else {
                     Toast.makeText(context, R.string.no_quality, Toast.LENGTH_SHORT).show();
                     videoBufferTimeout = 60000;
@@ -2254,9 +2798,9 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                     Toast.makeText(context, errorMessage, Toast.LENGTH_SHORT).show();
                 } else if (targetInstance != null) {
                     Manager.getInstance().removeDeadInstance(targetInstance);
-                    Toast.makeText(context, "Failed to connect to this instance.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(context, R.string.instance_connect_failed, Toast.LENGTH_SHORT).show();
                 } else {
-                    Toast.makeText(context, "Failed to fetch video URL", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(context, R.string.fetch_video_url_failed, Toast.LENGTH_SHORT).show();
                 }
             }
         }
@@ -2264,8 +2808,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
 
     private void proceedPlay(final String targetUrl) {
         boolean isLocal = targetUrl.startsWith(Environment.getExternalStorageDirectory().getPath()) || targetUrl.startsWith("file://");
-        boolean forceDownload = config.isConvertVideos() && !isLocal;
-        boolean shouldStream = (config.isStreamPlayback() && !forceDownload) || isLocal;
+        boolean shouldStream = config.isStreamPlayback() || isLocal;
 
         if (isLocal)
             updatePlaybackViaText(getString(R.string.cache));
@@ -2276,14 +2819,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
 
         if (config.isUseExternalPlayer()) {
             if (shouldStream) {
-                findViewById(R.id.video_loading).setVisibility(View.GONE);
-                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl));
-                intent.setDataAndType(Uri.parse(targetUrl), "video/mp4");
-                try {
-                    startActivity(intent);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
+                launchExternalPlayer(Uri.parse(targetUrl));
             } else {
                 downloadVideoTask = new DownloadVideoTask();
                 downloadVideoTask.execute(targetUrl);
@@ -2448,14 +2984,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
 
             if (videoFile != null) {
                 if (config.isUseExternalPlayer()) {
-                    findViewById(R.id.video_loading).setVisibility(View.GONE);
-                    Intent intent = new Intent(Intent.ACTION_VIEW);
-                    intent.setDataAndType(Uri.fromFile(videoFile), "video/mp4");
-                    try {
-                        startActivity(intent);
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
+                    launchExternalPlayer(Uri.fromFile(videoFile));
                 } else {
                     resetVideo();
                     videoUrl = Uri.fromFile(videoFile).toString();
@@ -2468,14 +2997,12 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                     loadVideoUri(videoUrl);
                 }
             } else {
-                handleStreamFailure(false, "Download failed after multiple attempts.");
+                handleStreamFailure(false, getString(R.string.download_failed_retries));
             }
         }
     }
 
-    // ------------------------------------------------------------------
-    // Subtitles UI (track list once per video, VTT once per track)
-    // ------------------------------------------------------------------
+    // --- Subtitles UI (track list once per video, VTT once per track) ---
 
     /** Opens the picker, fetching the track list on first open. */
     private void showSubtitlesDialog() {
@@ -2534,9 +3061,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         if (subtitleView != null) subtitleView.setVisibility(View.GONE);
     }
 
-    /** Activates the track: the VTT is downloaded once (racing several
-     *  candidate URLs — the advertised one is often dead), parsed into
-     *  cue arrays and shown by the ticker. */
+    /** Activates the track: the VTT is downloaded once, racing several candidate URLs. */
     private void selectSubtitles(final SubtitleTrack track) {
         activeSubtitleTrack = track;
         // Drop any previous cues while the new file downloads.
@@ -2558,9 +3083,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
     /** Global budget of the race wave. */
     private static final long VTT_RACE_TOTAL_MS = 10000;
 
-    /** Candidate URLs for one track: remembered winner, the advertised
-     *  URL (+ http downgrade), then the /api/v1/captions endpoints of the
-     *  configured Invidious instances (capped). All raced in parallel. */
+    /** Candidate URLs for one track: remembered winner, the advertised URL (+ http downgrade) */
     private String[] buildVttCandidates(SubtitleTrack track) {
         List<String> urls = new ArrayList<String>();
         // 0. Remembered winner first (solo fast path in LoadVttTask).
@@ -2603,8 +3126,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         return urls.toArray(new String[urls.size()]);
     }
 
-    /** Extracts the "http://host[:port]" prefix of an Invidious captions
-     *  URL, or null when the URL is not one. */
+    /** Extracts the "http://host[:port]" prefix of an Invidious captions URL, or null when the URL is not one. */
     private static String invidiousCaptionsBase(String url) {
         if (url == null) return null;
         int idx = url.indexOf("/api/v1/captions/");
@@ -2666,9 +3188,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         subtitleHandler.removeCallbacks(subtitleTick);
     }
 
-    /** Fetches the caption tracks (once per video). Piped first: its
-     *  caption URLs actually resolve, while Invidious bodies are
-     *  bot-blocked (its list still helps as a picker fallback). */
+    /** Fetches the caption tracks (once per video). */
     private class LoadSubtitlesTask extends AsyncTask<String, Void, List<SubtitleTrack>> {
         @Override
         protected List<SubtitleTrack> doInBackground(String... params) {
@@ -2677,9 +3197,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                 // 1. Piped: healthy list, definitive even when empty.
                 List<SubtitleTrack> piped = Manager.getInstance().getPipedSubtitles(params[0]);
                 if (piped != null) return piped;
-                // 2. General pool (Invidious first in its list): the picker
-                //    still gets tracks, and LoadVttTask re-tries Piped for
-                //    the actual caption body.
+                // 2.
                 return api.getSubtitles(params[0]);
             } catch (Exception e) {
                 e.printStackTrace();
@@ -2704,9 +3222,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         }
     }
 
-    /** Downloads the VTT: remembered winner solo (fast path), then one
-     *  parallel race over all candidates, then live Piped. The winner is
-     *  remembered for the next selection. */
+    /** Downloads the VTT: remembered winner solo (fast path), then one parallel race over all candidates. */
     private class LoadVttTask extends AsyncTask<String, Void, VttSubtitles> {
         @Override
         protected VttSubtitles doInBackground(String... params) {
@@ -2758,9 +3274,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         Manager.rememberInvidiousCaptionWinner(base, url.indexOf("?label=") != -1);
     }
 
-    /** Parallel download wave: every candidate starts at once, the first
-     *  body that parses wins (its URL stored into winnerUrl). Null when
-     *  all fail. Java 1.5: plain threads + wait/notify. */
+    /** Parallel download wave: every candidate starts at once, the first body that parses wins. */
     private VttSubtitles raceVttCandidates(String[] urls, final long totalBudgetMs, final long requestTimeoutMs,
             final String[] winnerUrl, AsyncTask<?, ?, ?> task) {
         if (urls == null || urls.length == 0) return null;
@@ -2809,8 +3323,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         return winner[0];
     }
 
-    /** Last resort: the live Piped list of this video plus the body of the
-     *  track matching the selected language. */
+    /** Last resort: the live Piped list of this video plus the body of the track matching the selected language. */
     private VttSubtitles fetchPipedVtt() {
         if (videoId == null || videoId.length() == 0 || activeSubtitleTrack == null) return null;
         List<SubtitleTrack> pipedTracks;
@@ -2822,8 +3335,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         if (pipedTracks == null || pipedTracks.isEmpty()) return null;
         String code = activeSubtitleTrack.code;
         boolean hasCode = code != null && code.length() > 0;
-        // Pass 1: every route of the selected language (Piped lists auto and
-        // manual captions of one language as separate same-code tracks).
+        // Pass 1: every route of the language (Piped lists auto and manual as separate tracks).
         if (hasCode) {
             for (int i = 0; i < pipedTracks.size(); i++) {
                 SubtitleTrack t = pipedTracks.get(i);
@@ -2843,8 +3355,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                 }
             }
         } else {
-            // The selected track carried no language code: take the first
-            // body that parses.
+            // The selected track carried no language code: take the first body that parses.
             for (int i = 0; i < pipedTracks.size(); i++) {
                 VttSubtitles parsed = tryFetchVttWithDowngrade(pipedTracks.get(i).url);
                 if (parsed != null) return parsed;
@@ -2890,8 +3401,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                 commentsUnavailable = true;
                 return null;
             } catch (Exception e) {
-                // Frontends without pagination (custom configs): the plain
-                // comments call still works, just without infinite scroll.
+                // Frontends without pagination (custom configs): the plain comments call still works, just without infinite scroll.
                 try {
                     List<Comment> flat = api.getComments(params[0]);
                     if (flat != null) {
@@ -2980,8 +3490,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                 return;
             }
             if (result.comments != null && !result.comments.isEmpty()) {
-                // Skip comments already on screen (backend pages can repeat
-                // a few rows).
+                // Skip comments already on screen (backend pages can repeat a few rows).
                 int added = 0;
                 for (int i = 0; i < result.comments.size(); i++) {
                     Comment c = result.comments.get(i);
@@ -3008,13 +3517,9 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         }
     }
 
-    // ------------------------------------------------------------------
-    // Comment replies (NewPipe-style inline expand/collapse)
-    // ------------------------------------------------------------------
+    // --- Comment replies (NewPipe-style inline expand/collapse) ---
 
-    /** Expands or collapses the replies of one comment. The first
-     *  expansion fetches the replies page through the comment's own
-     *  continuation URL; legacy Invidious rows embed their replies. */
+    /** Expands or collapses the replies of one comment. */
     private void toggleCommentReplies(Comment parent) {
         if (parent == null || commentsAdapter == null || isFinishing()) return;
         if (parent.repliesShown) {
@@ -3046,15 +3551,13 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
     private void insertCommentReplies(Comment parent, List<Comment> replies) {
         parent.repliesLoading = false;
         if (replies == null || replies.isEmpty()) {
-            // Definitive empty answer: drop the toggle. Null (network
-            // failure) keeps the count so tapping retries.
+            // Definitive empty answer: drop the toggle. Null (network failure) keeps the count so tapping retries.
             if (replies != null) parent.replyCount = 0;
             commentsAdapter.notifyDataSetChanged();
             return;
         }
         int idx = comments.indexOf(parent);
-        if (idx < 0) return; // parent no longer displayed
-        // Replace any previously inserted replies of this parent.
+        if (idx < 0) return; // if (idx < 0) return; // parent no longer displayed Replace any previously inserted replies of this parent.
         int i = idx + 1;
         while (i < comments.size() && comments.get(i).isReply) {
             comments.remove(i);

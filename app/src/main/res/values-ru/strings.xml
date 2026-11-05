@@ -82,7 +82,7 @@
     <string name="incorrect_url">Введите корректную ссылку</string>
     <string name="url">Введите URL</string>
     <string name="conversion">Конвертация</string>
-    <string name="conversion_">Конвертация поможет, если устройство не поддерживает H.264, а MX Player тормозит или недоступен. Конвертация доступна только с инстансами yt2009 и YtAPILegacy. Необходима SD-карта. При конвертации не пытайтесь просматривать длинные видео. <b>Не включайте, если видео работают нормально.</b></string>
+    <string name="conversion_">Конвертация поможет, если устройство не поддерживает H.264, а MX Player тормозит или недоступен. Конвертация доступна только с инстансами yt2009 и YtAPILegacy. SD-карта нужна только при отключённом стриминге. <b>Не включайте, если видео работают нормально.</b></string>
     <string name="convert_videos">Конвертировать видео</string>
     <string name="updating_instances">Обновление инстансов</string>
     <string name="video_codec">Видеокодек</string>
@@ -206,4 +206,32 @@
 
     <!-- Channel popular tab -->
     <string name="no_channel_popular">Не удалось загрузить самые популярные видео канала.</string>
+    <string name="instance_exist">Инстанс уже введён</string>
+    <string name="hide_shorts">Скрыть Shorts</string>
+    <string name="hide_shorts_length">Скрывать видео короче</string>
+    <string name="hide_shorts_recommendations">Скрывать Shorts в рекомендациях</string>
+    <string name="hide_shorts_subscriptions">Скрывать Shorts в подписках</string>
+    <string name="share_menu_title">Отправить через</string>
+    <string name="copy_link">Копировать ссылку</string>
+    <string name="link_copied">Ссылка скопирована в буфер обмена</string>
+    <string name="downloading">Загрузка видео…</string>
+    <string name="resolving_stream">Получение ссылки на поток…</string>
+    <string name="download_complete">Загрузка завершена: %s</string>
+    <string name="download_failed">Не удалось скачать</string>
+    <string name="download_speed_only">%1$d КБ/с</string>
+    <string name="download_folder">Папка загрузки</string>
+    <string name="instance">Инстанс</string>
+    <string name="auto">Авто</string>
+    <string name="invalid_path">Введите корректный абсолютный путь к папке</string>
+    <string name="download_instance_failed">Не удалось получить поток с %s</string>
+    <string name="search_failed">Поиск не удался: %s</string>
+    <string name="update_failed">Не удалось обновить: %s</string>
+    <string name="stream_failed_retries">Не удалось получить поток после нескольких попыток.</string>
+    <string name="stream_timeout_retries">Истекло время ожидания потока после нескольких попыток.</string>
+    <string name="wait_for_load">Подождите, пока видео загрузится</string>
+    <string name="all_instances_failed">Ни один инстанс не смог предоставить видео.</string>
+    <string name="instance_connect_failed">Не удалось подключиться к этому инстансу.</string>
+    <string name="fetch_video_url_failed">Не удалось получить ссылку на видео</string>
+    <string name="download_failed_retries">Загрузка не удалась после нескольких попыток.</string>
+    <string name="download">Скачать</string>
 </resources>

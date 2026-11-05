@@ -12,6 +12,7 @@ import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -29,9 +30,11 @@ import android.widget.ListView;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TabHost;
+import android.widget.TabWidget;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
@@ -56,13 +59,10 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
     private static final String STATE_IS_SEARCH_MODE = "is_search_mode";
     private static final String STATE_CURRENT_TAB = "current_tab";
 
-    /** A feed older than this is refreshed automatically in the
-     *  "on app open" mode. */
+    /** A feed older than this is refreshed automatically in the "on app open" mode. */
     private static final long FEED_STALE_MS = 15L * 60L * 1000L;
 
-    /** Feed refresh reasons. MANUAL and REBUILD check every channel; AUTO
-     *  only outdated ones; RECONNECT re-checks everything after the
-     *  network was down, silently. */
+    /** Feed refresh reasons. */
     private static final int FEED_REFRESH_AUTO = 0;
     private static final int FEED_REFRESH_MANUAL = 1;
     private static final int FEED_REFRESH_REBUILD = 2;
@@ -82,8 +82,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
     private SearchTask searchTask;
     private PopularTask popularTask;
 
-    // Infinite search (NewPipe-style): the token of the next results page
-    // and the single-flight guard of the page loader.
+    // Infinite search (NewPipe-style): the token of the next results page and the single-flight guard of the page loader.
     private String searchNextToken = null;
     private boolean searchMoreLoading = false;
 
@@ -96,15 +95,13 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
     private boolean feedLoading = false;
     private boolean feedError = false;
     private int subsCount = -1;
-    /** Centered loading overlay of the Subscriptions tab (may be absent in
-     *  alternative layouts). */
+    /** Centered loading overlay of the Subscriptions tab (may be absent in alternative layouts). */
     private View subsOverlay;
     /** True when the Popular feed is hidden by settings (subs-only mode). */
     private boolean hidePopular = false;
     /** Hops FeedManager observer callbacks to the UI thread. */
     private final Handler feedUiHandler = new Handler();
-    /** Seq of the last feed result already applied (guards a double apply
-     *  across the rotation gap). */
+    /** Seq of the last feed result already applied (guards a double apply across the rotation gap). */
     private long lastAppliedFeedSeq = 0;
     /** Wall-clock time of the last successful feed load; 0 = unknown. */
     private long feedLoadedAt = 0;
@@ -113,14 +110,12 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
     private TextView subsProgressText;
     private TextView subsLastUpdate;
     private PullToRefreshLayout subsPull;
-    /** True after a rotation: the retained feed is on screen, the first
-     *  onResume must not auto-refresh again. */
+    /** True after a rotation: the retained feed is on screen, the first onResume must not auto-refresh again. */
     private boolean skipFirstAutoRefresh = false;
     /** False until the first onResume; on-open refreshes happen there. */
     private boolean firstResume = true;
 
-    /** In-app timer for the interval mode (armed only while resumed: a
-     *  background service would not survive reliably on Android 2.3). */
+    /** In-app timer for the interval mode (armed only while resumed). */
     private final Handler feedTimer = new Handler();
     private final Runnable feedTimerTask = new Runnable() {
         public void run() {
@@ -180,28 +175,42 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         setContentView(R.layout.activity_main);
 
         listView = (AbsListView) findViewById(R.id.videos);
-        searchQuery = (AutoCompleteTextView) findViewById(R.id.search_query);
-        final ImageButton searchBtn = (ImageButton) findViewById(R.id.search_btn);
         final ProgressBar loading = (ProgressBar) findViewById(R.id.loading);
         final LinearLayout noPopular = (LinearLayout) findViewById(R.id.no_popular);
         context = this;
+
+        final ImageButton searchBtn;
+
+        // ListView = phones (search scrolls with the content); GridView = tablet (fixed search bar).
+        if (listView instanceof ListView) {
+            ListView lv = (ListView) listView;
+            View headerView = getLayoutInflater().inflate(R.layout.header_search, lv, false);
+            lv.addHeaderView(headerView, null, false);
+            lv.setItemsCanFocus(true);
+            searchQuery = (AutoCompleteTextView) headerView.findViewById(R.id.search_query);
+            searchBtn = (ImageButton) headerView.findViewById(R.id.search_btn);
+        } else {
+            searchQuery = (AutoCompleteTextView) findViewById(R.id.search_query);
+            searchBtn = (ImageButton) findViewById(R.id.search_btn);
+        }
 
         tabHost = (TabHost) findViewById(R.id.main_tabhost);
         hidePopular = config.isHidePopularFeed();
         if (tabHost != null) {
             tabHost.setup();
             if (hidePopular) {
-                // "Hide Popular": no tab registered, the subs feed is the
-                // home screen; search results borrow the hidden list.
+                // "Hide Popular": no tab registered, the subs feed is the home screen; search results borrow the hidden list.
                 findViewById(R.id.popular_tab).setVisibility(View.GONE);
             } else {
-                tabHost.addTab(tabHost.newTabSpec("popular")
-                        .setIndicator(getString(R.string.popular_tab))
-                        .setContent(R.id.popular_tab));
+                TabHost.TabSpec popularSpec = tabHost.newTabSpec("popular");
+                popularSpec.setContent(R.id.popular_tab);
+                safeSetIndicator(popularSpec, getString(R.string.popular_tab), R.drawable.ic_home);
+                tabHost.addTab(popularSpec);
             }
-            tabHost.addTab(tabHost.newTabSpec("subs")
-                    .setIndicator(getString(R.string.subs_tab))
-                    .setContent(R.id.subs_tab));
+            TabHost.TabSpec subsSpec = tabHost.newTabSpec("subs");
+            subsSpec.setContent(R.id.subs_tab);
+            safeSetIndicator(subsSpec, getString(R.string.subs_tab), R.drawable.ic_subscriptions);
+            tabHost.addTab(subsSpec);
             tabHost.setOnTabChangedListener(new TabHost.OnTabChangeListener() {
                 public void onTabChanged(String tabId) {
                     if ("subs".equals(tabId)) {
@@ -213,18 +222,8 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
             if (hidePopular) {
                 // One tab needs no tab bar.
                 tabHost.getTabWidget().setVisibility(View.GONE);
-            }
-            if (NotPipe.SDK < 11) {
-                // The default TabWidget indicator is too tall on old Androids.
-                int h = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 33f,
-                        getResources().getDisplayMetrics());
-                android.widget.TabWidget tw = tabHost.getTabWidget();
-                for (int i = 0; i < tw.getChildCount(); i++) {
-                    View child = tw.getChildAt(i);
-                    if (child != null && child.getLayoutParams() != null) {
-                        child.getLayoutParams().height = h;
-                    }
-                }
+            } else {
+                restyleTabs();
             }
         }
 
@@ -267,8 +266,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
             }
         });
 
-        // (Scroll-idle notifyDataSetChanged listeners were removed: they
-        // only burned CPU on weak devices.)
+        // (Scroll-idle notifyDataSetChanged listeners were removed: they only burned CPU on weak devices.)
         View manageBtn = findViewById(R.id.manage_subs_btn);
         if (manageBtn != null) {
             manageBtn.setOnClickListener(new View.OnClickListener() {
@@ -294,9 +292,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
             isSearchMode = savedInstanceState.getBoolean(STATE_IS_SEARCH_MODE, false);
         }
 
-        // Feed bootstrap: retained state (rotation) wins, then the on-disk
-        // cache paints the tab instantly; the refresh is decided in
-        // maybeAutoRefresh() on the first onResume.
+        // Feed bootstrap: retained state (rotation) wins, then the on-disk cache paints the tab instantly.
         if (subsCount == -1) {
             subsCount = Subscriptions.count();
         }
@@ -313,8 +309,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         if (subsFeed != null && !subsFeed.isEmpty()) {
             applyFeed(subsFeed);
         }
-        // A refresh started before a rotation keeps running in the
-        // process-wide coordinator: re-attach to its live progress.
+        // A refresh started before a rotation keeps running in the process-wide coordinator: re-attach to its live progress.
         feedLoading = FeedManager.isUpdating();
         if (feedLoading) {
             updateFeedProgress(FeedManager.getProgressCurrent(), FeedManager.getProgressTotal());
@@ -335,15 +330,16 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-                // No clearCache/gc on the click path (see subsListView above).
+                // No clearCache/gc on the click path (see subsListView above). The list header (search bar) is not a VideoInfo: skip it.
+                Object item = parent.getItemAtPosition(position);
+                if (!(item instanceof VideoInfo)) return;
                 Intent intent = new Intent(MainActivity.this, VideoActivity.class);
-                intent.putExtra("ID", ((VideoInfo) parent.getItemAtPosition(position)).id);
+                intent.putExtra("ID", ((VideoInfo) item).id);
                 startActivity(intent);
             }
         });
 
-        // Infinite search: when the user nears the end of the results, the
-        // next page loads and appends (NewPipe's onScroll behavior).
+        // Infinite search: when the user nears the end of the results, the next page loads and appends (NewPipe's onScroll behavior).
         listView.setOnScrollListener(new AbsListView.OnScrollListener() {
             @Override
             public void onScrollStateChanged(AbsListView view, int scrollState) {
@@ -427,9 +423,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
                     searchQuery.dismissDropDown();
                     autoCompleteAdapter.setSearchActive(true);
                     isSearchMode = true;
-                    // Search results live in the Popular tab's list: switch
-                    // to it so the results are visible (shown as an overlay
-                    // in the "hide Popular" mode).
+                    // Search results live in the Popular tab's list: switch to it so the results are visible.
                     if (hidePopular) {
                         setSearchOverlayVisible(true);
                     } else {
@@ -466,10 +460,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
                 lastUpdate.set(Calendar.SECOND, 0);
                 lastUpdate.set(Calendar.MILLISECOND, 0);
                 if (Math.round((double) ((now.getTimeInMillis() - lastUpdate.getTimeInMillis()) / (24L * 60 * 60 * 1000))) >= config.getUpdateFrequency()) {
-                    // Background thread now (see InstancesUpdater): content
-                    // below starts loading IMMEDIATELY with the configured
-                    // instances; onInstancesUpdated refetches whatever is
-                    // still empty once the fresh list lands.
+                    // Background thread now (see InstancesUpdater): content loads immediately with the configured instances.
                     new InstancesUpdater(this, this).updateInstances();
                 }
             }
@@ -490,10 +481,12 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
             noPopular.setVisibility(View.GONE);
 
             int layout;
-            if (listView instanceof GridView || isSearchMode) {
+            if (isSearchMode) {
+                layout = R.layout.item_video;
+            } else if (listView instanceof GridView) {
                 layout = R.layout.item_video;
             } else {
-                layout = R.layout.item_video_compact;
+                layout = R.layout.item_video_noicon;
             }
 
             adapter = new VideoAdapter(this, layout, videos);
@@ -508,15 +501,9 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         }
     }
 
-    // ------------------------------------------------------------------
-    // Local subscriptions feed
-    // ------------------------------------------------------------------
+    // --- Local subscriptions feed ---
 
-    /**
-     * Single source of truth for the Subscriptions tab UI state: the
-     * previous list stays visible while a refresh runs, with the
-     * NewPipe-style progress bar on top.
-     */
+    /** Single source of truth for the Subscriptions tab UI state: the previous list stays visible while a refresh runs. */
     private void updateSubsViews() {
         View noSubs = findViewById(R.id.no_subs);
         TextView emptySubs = (TextView) findViewById(R.id.empty_subs);
@@ -536,14 +523,12 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
             return;
         }
 
-        // 2. There are subscriptions: the pull gesture stays armed in every
-        //    state (even over the error / empty captions).
+        // 2. There are subscriptions: the pull gesture stays armed in every state (even over the error / empty captions).
         if (noSubs != null) noSubs.setVisibility(View.GONE);
         if (subsPull != null) subsPull.setVisibility(View.VISIBLE);
         if (subsListView != null) subsListView.setVisibility(View.VISIBLE);
 
-        // 2a. Loading: updateFeedProgress drives the bar; the previous
-        //     list stays visible when present.
+        // 2a. Loading: updateFeedProgress drives the bar; the previous list stays visible when present.
         if (feedLoading) {
             if (emptySubs != null && (subsFeed == null || subsFeed.isEmpty())) {
                 emptySubs.setVisibility(View.GONE);
@@ -564,8 +549,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
             }
         }
 
-        // 2b. Last attempt failed and nothing is cached: tappable error,
-        //     with the pull gesture as an alternative retry.
+        // 2b. Last attempt failed and nothing is cached: tappable error, with the pull gesture as an alternative retry.
         if (feedError && (subsFeed == null || subsFeed.isEmpty())) {
             if (emptySubs != null) {
                 emptySubs.setText(R.string.feed_error);
@@ -580,27 +564,20 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
             return;
         }
 
-        // 2d. Subscriptions exist but the feed is empty (channels without
-        //     videos, or not loaded yet).
+        // 2d. Subscriptions exist but the feed is empty (channels without videos, or not loaded yet).
         if (emptySubs != null) {
             emptySubs.setText(R.string.no_videos);
             emptySubs.setVisibility(View.VISIBLE);
         }
     }
 
-    /** True when the in-memory feed is older than FEED_STALE_MS (or its
-     *  timestamp is unknown). */
+    /** True when the in-memory feed is older than FEED_STALE_MS (or its timestamp is unknown). */
     private boolean isFeedStale() {
         return feedLoadedAt <= 0
                 || System.currentTimeMillis() - feedLoadedAt > FEED_STALE_MS;
     }
 
-    /**
-     * Decides whether an automatic refresh is due, per the configured mode:
-     * ON OPEN refreshes on every fresh open (plus a staleness TTL),
-     * MANUAL never refreshes on its own, INTERVAL refreshes once the
-     * configured time has elapsed.
-     */
+    /** Decides whether an automatic refresh is due, per the configured mode. */
     private void maybeAutoRefresh(boolean freshOpen) {
         if (isDestroyedFlag || feedLoading || Subscriptions.count() == 0) return;
         int mode = config.getFeedRefreshMode();
@@ -625,8 +602,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         }
     }
 
-    /** (Re)arm the interval-mode auto refresh timer (fires only while
-     *  resumed, see onPause). */
+    /** (Re)arm the interval-mode auto refresh timer (fires only while resumed, see onPause). */
     private void scheduleFeedTimer() {
         feedTimer.removeCallbacks(feedTimerTask);
         if (config.getFeedRefreshMode() == Config.FEED_REFRESH_INTERVAL
@@ -645,8 +621,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         tabHost.setCurrentTab(0);
     }
 
-    /** In the "hide Popular" mode search results borrow the popular
-     *  tab's list, shown as an overlay above the subscriptions feed. */
+    /** In the "hide Popular" mode search results borrow the popular tab's list. */
     private void setSearchOverlayVisible(boolean visible) {
         if (!hidePopular) return;
         View popularTab = findViewById(R.id.popular_tab);
@@ -655,8 +630,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         if (subsTab != null) subsTab.setVisibility(visible ? View.GONE : View.VISIBLE);
     }
 
-    /** Start a feed refresh (idempotent). The refresh runs in the
-     *  process-wide FeedManager coordinator, so it survives rotations. */
+    /** Start a feed refresh (idempotent). */
     private void startFeedLoad(int reason) {
         if (isDestroyedFlag) return;
         if (Subscriptions.count() == 0) {
@@ -718,21 +692,19 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         if (subsProgressText != null) subsProgressText.setVisibility(View.GONE);
     }
 
-    /**
-     * Applies the result of a finished refresh (FeedManager observer,
-     * already on the UI thread).
-     */
+    /** Applies the result of a finished refresh (FeedManager observer, already on the UI thread). */
     private void handleFeedResult(FeedManager.FeedUpdate r, int reason) {
         if (isDestroyedFlag) return;
+        // Idempotent UI reset FIRST: even a duplicate or stale result.
+        feedLoading = false;
+        hideFeedProgress();
+        if (subsPull != null) subsPull.onRefreshComplete();
         if (r != null) {
             if (r.seq != 0 && r.seq <= lastAppliedFeedSeq) return; // already applied
             lastAppliedFeedSeq = r.seq;
         }
         // A live observer applied it: drop the parked copy.
         FeedManager.clearPendingResult();
-        feedLoading = false;
-        hideFeedProgress();
-        if (subsPull != null) subsPull.onRefreshComplete();
         if (r == null) {
             // No subscriptions: show the import card.
             feedLoaded = false;
@@ -742,9 +714,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
             return;
         }
         if (r.cancelled) {
-            // Superseded run: keep the screen as-is; show progress when the
-            // replacement is running, or a tappable error when the screen
-            // is empty - never a silent spinner.
+            // Superseded run: keep the screen as-is; show progress when the replacement is running.
             if (FeedManager.isUpdating()) {
                 feedLoading = true;
                 updateFeedProgress(FeedManager.getProgressCurrent(), FeedManager.getProgressTotal());
@@ -763,9 +733,23 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
             updateSubsViews();
             return;
         }
-        if (r.videos == null || r.videos.isEmpty()) {
-            // Nothing loaded and nothing cached: probably a connection
-            // problem. Do not mark the feed as loaded so a retry happens.
+        // Hide the Shorts at the source: the cached feed drives both the list and the next refresh's merge.
+        List<VideoInfo> videos = r.videos;
+        if (videos != null && !videos.isEmpty()) {
+            videos = filterShorts(videos, config.isHideShortsSubscriptions());
+        }
+        if (videos == null || videos.isEmpty()) {
+            if (r.ok > 0) {
+                // Every channel answered, but the rows were all hidden as Shorts (or the channels have no uploads)
+                feedError = false;
+                subsFeed = videos != null ? videos : new ArrayList<VideoInfo>();
+                feedLoaded = true;
+                feedLoadedAt = r.loadedAt;
+                applyFeed(subsFeed);
+                updateSubsViews();
+                return;
+            }
+            // Nothing loaded and nothing cached: probably a connection problem. Do not mark the feed as loaded so a retry happens.
             feedLoaded = false;
             feedError = true;
             subsFeed = null;
@@ -774,17 +758,17 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         }
         // At least one channel worked: show whatever we got.
         feedError = false;
-        subsFeed = r.videos;
+        subsFeed = videos;
         feedLoaded = true;
         feedLoadedAt = r.loadedAt;
-        applyFeed(r.videos);
+        applyFeed(videos);
         updateSubsViews();
         if (r.failed > 0 && reason == FEED_REFRESH_MANUAL) {
             showFailedChannels(r.failedNames);
         }
     }
 
-    // ---- FeedManager.FeedObserver: called from the update thread ----
+    // --- FeedManager.FeedObserver: called from the update thread ---
 
     public void onFeedProgress(final int current, final int total) {
         feedUiHandler.post(new Runnable() {
@@ -806,7 +790,8 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
 
     /** Install the feed results into the Subscriptions tab list. */
     private void applyFeed(List<VideoInfo> feed) {
-        if (subsListView == null || feed == null || feed.isEmpty()) return;
+        if (subsListView == null || feed == null) return;
+        feed = filterShorts(feed, config.isHideShortsSubscriptions());
         subsAdapter = new VideoAdapter(this,
                 subsListView instanceof GridView ? R.layout.item_video : R.layout.item_video_compact,
                 feed);
@@ -884,8 +869,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
     public void onConnectionRestored() {
         if (isDestroyedFlag) return;
 
-        // Subscriptions feed that failed or never loaded: re-check every
-        // channel, silently (no "up to date" toast, no failed dialog).
+        // Subscriptions feed that failed or never loaded: re-check every channel, silently (no "up to date" toast, no failed dialog).
         if (Subscriptions.count() > 0 && !feedLoading
                 && (feedError || !feedLoaded || subsFeed == null || subsFeed.isEmpty())) {
             startFeedLoad(FEED_REFRESH_RECONNECT);
@@ -958,8 +942,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
                 isSearchMode = false;
                 searchQuery.setText("");
                 if (hidePopular) {
-                    // Subs-only mode: hide the results overlay, the subs
-                    // feed is the home screen.
+                    // Subs-only mode: hide the results overlay, the subs feed is the home screen.
                     setSearchOverlayVisible(false);
                     findViewById(R.id.no_popular).setVisibility(View.GONE);
                     findViewById(R.id.loading).setVisibility(View.GONE);
@@ -991,8 +974,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
     @Override
     protected void onResume() {
         super.onResume();
-        // Reconnect watcher: reloads failed screens once the network is
-        // back while this activity is the visible one.
+        // Reconnect watcher: reloads failed screens once the network is back while this activity is the visible one.
         ConnectivityMonitor.register(this);
         if (adapter != null) {
             adapter.notifyDataSetChanged();
@@ -1012,16 +994,14 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         } else {
             feedLoading = false;
         }
-        // A refresh that finished while detached left its result parked:
-        // apply it now.
+        // A refresh that finished while detached left its result parked: apply it now.
         FeedManager.FeedUpdate pending = FeedManager.takePendingResult();
         if (pending != null) {
             handleFeedResult(pending, FeedManager.takePendingReason());
         }
 
         if (subsCount != -1 && count != subsCount) {
-            // The subscription list changed elsewhere: rebuild the feed so
-            // removed channels disappear immediately.
+            // The subscription list changed elsewhere: rebuild the feed so removed channels disappear immediately.
             subsCount = count;
             cancelFeedTask();
             feedLoaded = false;
@@ -1056,9 +1036,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         super.onPause();
         // The interval timer only fires while the activity is visible.
         feedTimer.removeCallbacks(feedTimerTask);
-        // Detach from the update; the refresh itself keeps running in the
-        // coordinator and its result waits in FeedManager for the next
-        // attach.
+        // Detach from the update; the refresh itself keeps running in the coordinator and its result waits in FeedManager.
         FeedManager.removeObserver(this);
         ConnectivityMonitor.unregister(this);
     }
@@ -1091,13 +1069,28 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
     }
 
     @Override
+    protected void onStop() {
+        super.onStop();
+        // Detach row bitmaps while MainActivity is in the background: the shared ImageLoader cache keeps them for the next visit.
+        if (listView != null && adapter != null) {
+            for (int i = 0; i < listView.getChildCount(); i++) {
+                adapter.resetImageView(listView.getChildAt(i));
+            }
+        }
+        if (subsListView != null && subsAdapter != null) {
+            for (int i = 0; i < subsListView.getChildCount(); i++) {
+                subsAdapter.resetImageView(subsListView.getChildAt(i));
+            }
+        }
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
         isDestroyedFlag = true;
         feedTimer.removeCallbacks(feedTimerTask);
         FeedManager.removeObserver(this);
-        // The in-flight update keeps running: its result waits in
-        // FeedManager for the next attach.
+        // The in-flight update keeps running: its result waits in FeedManager for the next attach.
         if (isFinishing()) {
             ImageLoader.clearCache();
         }
@@ -1210,20 +1203,17 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
                 return result;
             }
             try {
-                // Paginated first page; the token of page 2 keeps the
-                // infinite scroll going (NewPipe-style).
+                // Paginated first page; the token of page 2 keeps the infinite scroll going (NewPipe-style).
                 SearchPage page = metadata.searchPage(params[0], null);
                 result.videos = page.videos;
                 result.nextToken = page.nextToken;
             } catch (Throwable e) {
-                // Frontends without pagination (custom configs): the plain
-                // search still works, just without infinite scroll.
+                // Frontends without pagination (custom configs): the plain search still works, just without infinite scroll.
                 try {
                     result.videos = metadata.search(params[0]);
                     result.nextToken = null;
                 } catch (Throwable e2) {
-                    // Throwable: an OutOfMemoryError must surface as a failed
-                    // search, not kill the process.
+                    // Throwable: an OutOfMemoryError must surface as a failed search, not kill the process.
                     result.error = e2;
                 }
             }
@@ -1237,7 +1227,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
             if (loadingView != null) loadingView.setVisibility(View.GONE);
             TextView emptyView = (TextView) findViewById(R.id.empty_videos);
             if (result.error != null) {
-                Toast.makeText(MainActivity.this, "Search failed: " + result.error.getMessage(), Toast.LENGTH_LONG).show();
+                Toast.makeText(MainActivity.this, getString(R.string.search_failed, result.error.getMessage()), Toast.LENGTH_LONG).show();
                 if (emptyView != null) emptyView.setVisibility(View.GONE);
             } else if (result.videos != null) {
                 videos = result.videos;
@@ -1299,6 +1289,180 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         String nextToken;
     }
 
+    /** Applies the notPipe 0.4 tab look: compact 42dp rows, custom icon+title indicators. */
+    private void restyleTabs() {
+        if (tabHost == null) return;
+        TabWidget tabWidget = tabHost.getTabWidget();
+        removeTabStrip(tabWidget);
+        int compactHeight = (int) TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP, 42f, getResources().getDisplayMetrics());
+        String[] titles = hidePopular
+                ? new String[] { getString(R.string.subs_tab) }
+                : new String[] { getString(R.string.popular_tab), getString(R.string.subs_tab) };
+        int[] iconResIds = hidePopular
+                ? new int[] { R.drawable.ic_subscriptions }
+                : new int[] { R.drawable.ic_home, R.drawable.ic_subscriptions };
+        int t = 0;
+        for (int i = 0; i < tabWidget.getChildCount(); i++) {
+            View tabView = tabWidget.getChildAt(i);
+            if (tabView == null) continue;
+            tabView.setBackgroundResource(R.drawable.tab_selector);
+            tabView.setPadding(0, 0, 0, 0);
+            if (tabView.getLayoutParams() != null) {
+                tabView.getLayoutParams().height = compactHeight;
+            }
+            if (tabView instanceof ViewGroup && tabView.findViewById(R.id.tab_icon) == null) {
+                ViewGroup vg = (ViewGroup) tabView;
+                vg.removeAllViews();
+                String title = t < titles.length ? titles[t] : "";
+                int iconResId = t < iconResIds.length ? iconResIds[t] : 0;
+                View customIndicator = createTabIndicator(title, iconResId);
+                vg.addView(customIndicator, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.FILL_PARENT,
+                        ViewGroup.LayoutParams.FILL_PARENT));
+            }
+            t++;
+        }
+    }
+
+    private View createTabIndicator(String title, int iconResId) {
+        View view = LayoutInflater.from(this).inflate(R.layout.tab_indicator, null);
+        ImageView icon = (ImageView) view.findViewById(R.id.tab_icon);
+        TextView text = (TextView) view.findViewById(R.id.tab_title);
+
+        if (iconResId != 0) {
+            icon.setImageResource(iconResId);
+            icon.setVisibility(View.VISIBLE);
+        } else {
+            icon.setVisibility(View.GONE);
+        }
+
+        text.setText(title);
+        return view;
+    }
+
+    private void safeSetIndicator(TabHost.TabSpec tabSpec, String title, int iconResId) {
+        try {
+            // Reflection for Android 1.6+ (API 4+) custom view indicator
+            View indicatorView = createTabIndicator(title, iconResId);
+            java.lang.reflect.Method setIndicatorMethod = TabHost.TabSpec.class.getMethod("setIndicator", View.class);
+            setIndicatorMethod.invoke(tabSpec, indicatorView);
+        } catch (Exception e) {
+            // Fallback for Android 1.5 (API 3)
+            try {
+                if (iconResId != 0) {
+                    android.graphics.drawable.Drawable icon = getResources().getDrawable(iconResId);
+                    tabSpec.setIndicator(title, icon);
+                } else {
+                    tabSpec.setIndicator(title);
+                }
+            } catch (Exception ex) {
+                tabSpec.setIndicator(title);
+            }
+        }
+    }
+
+    /** Removes the bottom strip lines underneath TabWidget across all Android versions. */
+    private void removeTabStrip(TabWidget tabWidget) {
+        if (tabWidget == null) return;
+
+        // Android 1.6+ (API Level 4+)
+        try {
+            java.lang.reflect.Method setStripEnabled = tabWidget.getClass().getMethod("setStripEnabled", boolean.class);
+            setStripEnabled.invoke(tabWidget, false);
+        } catch (Exception ignored) {}
+
+        // Android 1.5 (API Level 3) fallback: disable internal drawing flag
+        try {
+            java.lang.reflect.Field drawStripsField = tabWidget.getClass().getDeclaredField("mDrawBottomStrips");
+            drawStripsField.setAccessible(true);
+            drawStripsField.setBoolean(tabWidget, false);
+        } catch (Exception ignored) {}
+
+        // Replace strip drawables with a transparent ColorDrawable
+        String[] stripFields = new String[] { "mBottomLeftStrip", "mBottomRightStrip", "mLeftStrip", "mRightStrip" };
+        for (int i = 0; i < stripFields.length; i++) {
+            try {
+                java.lang.reflect.Field field = tabWidget.getClass().getDeclaredField(stripFields[i]);
+                field.setAccessible(true);
+                field.set(tabWidget, new android.graphics.drawable.ColorDrawable(0));
+            } catch (Exception ignored) {}
+        }
+    }
+
+    /** Removes Shorts (videos shorter than the configured threshold) from a feed. */
+    private List<VideoInfo> filterShorts(List<VideoInfo> feed, boolean enabled) {
+        if (!enabled || feed == null) return feed;
+        int threshold = config.getShortLengthSeconds();
+        if (threshold <= 0) return feed;
+        List<VideoInfo> filtered = new ArrayList<VideoInfo>();
+        for (int i = 0; i < feed.size(); i++) {
+            VideoInfo video = feed.get(i);
+            int lengthSeconds = parseDurationSeconds(video.duration);
+            if (lengthSeconds >= 0 && lengthSeconds < threshold) continue;
+            filtered.add(video);
+        }
+        return filtered;
+    }
+
+    /** Parses a duration string into a total number of seconds. */
+    private static int parseDurationSeconds(String duration) {
+        if (duration == null) return -1;
+        duration = duration.trim();
+        if (duration.length() == 0) return -1;
+        // ISO 8601 period ("PT#H#M#S"): some frontends emit it instead of a clock string.
+        if (duration.charAt(0) == 'P') return parseIsoPeriodSeconds(duration);
+        String[] parts = duration.split(":");
+        if (parts.length == 0) return -1;
+        int total = 0;
+        try {
+            for (int i = 0; i < parts.length; i++) {
+                String part = parts[i].trim();
+                if (part.length() == 0) return -1;
+                int value = Integer.parseInt(part);
+                int factor = 1;
+                for (int j = i + 1; j < parts.length; j++) {
+                    factor *= 60;
+                }
+                total += value * factor;
+            }
+            return total;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    /** Seconds of an ISO 8601 period ("PT1M30S", "PT2H5M40S"); -1 when the string is not a well-formed time period. */
+    private static int parseIsoPeriodSeconds(String iso) {
+        int total = 0;
+        int value = -1;
+        boolean inTime = false;
+        boolean fraction = false;
+        boolean anyUnit = false;
+        for (int i = 0; i < iso.length(); i++) {
+            char c = iso.charAt(i);
+            if (c >= '0' && c <= '9') {
+                if (fraction) continue;
+                value = value < 0 ? (c - '0') : value * 10 + (c - '0');
+            } else if (c == 'T') {
+                inTime = true;
+            } else if (c == '.') {
+                fraction = true;
+            } else if (c == 'H' || c == 'M' || c == 'S') {
+                if (value < 0 || !inTime) return -1;
+                if (c == 'H') total += value * 3600;
+                else if (c == 'M') total += value * 60;
+                else total += value;
+                value = -1;
+                fraction = false;
+                anyUnit = true;
+            } else if (c != 'P') {
+                return -1;
+            }
+        }
+        return anyUnit ? total : -1;
+    }
+
     private class PopularTask extends AsyncTask<Void, Void, PopularResult> {
         @Override
         protected PopularResult doInBackground(Void... params) {
@@ -1343,9 +1507,21 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
             } else if (metadata == null || result.videos == null || result.videos.size() == 0) {
                 if (noPopularView != null) noPopularView.setVisibility(View.VISIBLE);
             } else {
+                result.videos = filterShorts(result.videos, config.isHideShortsRecommendations());
+                if (result.videos == null || result.videos.size() == 0) {
+                    if (noPopularView != null) noPopularView.setVisibility(View.VISIBLE);
+                    return;
+                }
                 if (noPopularView != null) noPopularView.setVisibility(View.GONE);
                 videos = result.videos;
-                int layout = result.videos.get(0).channelThumbnail.length() > 0 ? R.layout.item_video : R.layout.item_video_compact;
+                int layout;
+                if (isSearchMode) {
+                    layout = R.layout.item_video;
+                } else if (listView instanceof GridView) {
+                    layout = R.layout.item_video;
+                } else {
+                    layout = R.layout.item_video_noicon;
+                }
                 adapter = new VideoAdapter(context, layout, videos);
                 if (listView != null) {
                     setAdapterForView(listView, adapter);

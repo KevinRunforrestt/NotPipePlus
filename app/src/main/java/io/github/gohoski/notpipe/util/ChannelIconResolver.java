@@ -1,6 +1,7 @@
 package io.github.gohoski.notpipe.util;
 
 import android.os.Handler;
+import android.widget.ImageView;
 import android.os.Looper;
 
 import java.util.ArrayList;
@@ -13,21 +14,11 @@ import java.util.concurrent.Executors;
 import io.github.gohoski.notpipe.api.Manager;
 import io.github.gohoski.notpipe.api.Metadata;
 
-/**
- * Shared resolver for channel icons fetched by channel ID when a video
- * row misses the channel thumbnail URL; results are cached statically so
- * they are reused across activities.
- *
- * A failed resolution is NOT permanent: it parks the channel for a short
- * cooldown (a transient network drop used to kill that channel's avatar
- * for the whole process, which is why some avatars loaded and others
- * never did), and retries run on the healthiest instances first.
- */
+/** Shared resolver for channel icons fetched by channel ID when a video row misses the channel thumbnail URL. */
 public class ChannelIconResolver {
     public static final String FAILED = "FAILED";
 
-    /** Distinct metadata instances one fallback may try before declaring
-     *  the icon unresolvable for now. */
+    /** Distinct metadata instances one fallback may try before declaring the icon unresolvable for now. */
     private static final int MAX_ICON_ATTEMPTS = 3;
     /** A failed channel waits this long before another resolution. */
     private static final long RETRY_COOLDOWN_MS = 2L * 60L * 1000L;
@@ -39,20 +30,11 @@ public class ChannelIconResolver {
     private static final ExecutorService channelIconExecutor = Executors.newFixedThreadPool(4);
 
     public interface OnIconResolvedListener {
-        /**
-         * Callback invoked on the main thread when a background icon fetch finishes.
-         *
-         * @param channelId the channel ID that was resolved
-         * @param url the resolved icon URL, or null if resolution failed
-         */
+        /** Callback invoked on the main thread when a background icon fetch finishes. */
         void onIconResolved(String channelId, String url);
     }
 
-    /**
-     * Returns the previously resolved icon URL for a channel, or null if not yet resolved.
-     * Returns the {@link #FAILED} constant while a recent resolution failed
-     * (it clears after {@link #RETRY_COOLDOWN_MS}).
-     */
+    /** Returns the previously resolved icon URL for a channel, or null if not yet resolved. */
     public static String getResolved(String channelId) {
         if (channelId == null) return null;
         String cached = resolvedChannelIcons.get(channelId);
@@ -67,11 +49,7 @@ public class ChannelIconResolver {
         return at == null || System.currentTimeMillis() - at.longValue() >= RETRY_COOLDOWN_MS;
     }
 
-    /**
-     * Pre-populates the cache with a known icon URL so that future
-     * {@link #getResolved} calls can return it without a network fetch.
-     * A fresh URL also clears any parked failure for the channel.
-     */
+    /** Pre-populates the cache with a known icon URL for future getResolved calls. */
     public static void setResolved(String channelId, String url) {
         if (channelId == null || url == null) return;
         if (url.length() == 0) return;
@@ -79,15 +57,7 @@ public class ChannelIconResolver {
         failedAt.remove(channelId);
     }
 
-    /**
-     * Requests a background fetch of the channel icon. No-op while the same
-     * channel is being fetched, already resolved, or parked in the failure
-     * cooldown; otherwise the listener is invoked on the main thread when
-     * the fetch completes.
-     *
-     * @param channelId the channel ID to resolve
-     * @param listener  optional listener to be notified when the fetch completes
-     */
+    /** Requests a background fetch of the channel icon. */
     public static void requestFallback(final String channelId, final OnIconResolvedListener listener) {
         if (channelId == null || channelId.length() == 0
                 || fetchingChannelIcons.containsKey(channelId)) {
@@ -103,11 +73,7 @@ public class ChannelIconResolver {
             public void run() {
                 String fetchedUrl = null;
                 try {
-                    // Try DISTINCT instances, healthiest first, preferring
-                    // Invidious: its icon URLs are served by the instance
-                    // itself, while Piped ones go through the image proxies
-                    // that some networks (the Kindle Fire's among them)
-                    // cannot reach at all.
+                    // Try DISTINCT instances, healthiest first, preferring Invidious: its icon URLs are served by the instance itself.
                     List<Metadata> tried = new ArrayList<Metadata>();
                     for (int attempt = 0; attempt < MAX_ICON_ATTEMPTS; attempt++) {
                         if (fetchedUrl != null && fetchedUrl.length() > 0) break;
@@ -147,5 +113,27 @@ public class ChannelIconResolver {
                 });
             }
         });
+    }
+
+    /** Loads a channel icon into the given view, preferring an icon URL that was previously resolved for the channel. */
+    public static void loadInto(final ImageView view, final String channelId, final String thumbnailUrl, final OnIconResolvedListener resolveListener) {
+        String url = thumbnailUrl;
+        if (channelId != null && channelId.length() > 0) {
+            String resolved = getResolved(channelId);
+            if (FAILED.equals(resolved)) return;
+            if (resolved != null) url = resolved;
+        }
+        if (url == null || url.length() == 0) {
+            requestFallback(channelId, resolveListener);
+        } else {
+            ImageLoader.loadAvatar(url, view, new ImageLoader.ImageLoaderCallback() {
+                @Override
+                public void onFail() {
+                    if (getResolved(channelId) == null) {
+                        requestFallback(channelId, resolveListener);
+                    }
+                }
+            });
+        }
     }
 }

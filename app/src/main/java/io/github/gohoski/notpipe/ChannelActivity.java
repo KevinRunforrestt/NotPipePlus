@@ -42,12 +42,7 @@ import io.github.gohoski.notpipe.ui.VideoAdapter;
 import io.github.gohoski.notpipe.util.ConnectivityMonitor;
 import io.github.gohoski.notpipe.util.ImageLoader;
 
-/**
- * Channel page, NewPipe-style tabs: "Popular" (this channel's most
- *  popular videos, default), "Videos" (latest uploads) and "Playlists"
- *  (public playlists, lazy). The header carries the subscribe button in
- *  both orientations.
- */
+/** Channel page with NewPipe-style tabs: Popular (default), Videos and Playlists. */
 public class ChannelActivity extends Activity implements ConnectivityMonitor.Listener {
     Metadata api;
     ChannelApi channelApi;
@@ -59,8 +54,7 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
     boolean isDestroyedFlag = false;
 
     TabHost tabHost;
-    /** List of the "Popular" tab; the layout ids keep the historical
-     *  for_you names, the content is the channel's most popular videos. */
+    /** List of the "Popular" tab; the layout ids keep the historical for_you names. */
     AbsListView forYouList;
     AbsListView videosList;
     VideoAdapter forYouAdapter;
@@ -80,16 +74,12 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
     boolean playlistsLoaded = false;
     boolean playlistsLoading = false;
     LoadPlaylistsTask loadPlaylistsTask;
-    // Kept so onDestroy can cancel in-flight loads: on rotation the old
-    // activity is destroyed and Gingerbread runs all AsyncTasks on one
-    // serial thread — an uncancelled task keeps it busy for nothing.
+    // Kept so onDestroy can cancel in-flight loads (Gingerbread runs all AsyncTasks on one serial thread).
     LoadChannelTask loadChannelTask;
     LoadVideosTask loadVideosTask;
     LoadPopularVideosTask loadPopularVideosTask;
 
-    // ---- Rotation support (android:configChanges) ----
-    // The activity survives rotation: onConfigurationChanged swaps the
-    // layout and re-binds what is already in memory (no new requests).
+    // Rotation support (android:configChanges): the activity survives rotation.
     boolean tabsSetUp = false;        // setupTabs already ran for this instance
     String currentTabTag = null;    // last selected tab
     /** Hops worker-thread results back to the UI thread. */
@@ -116,8 +106,7 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
         bindChannelHeaderListener();
         bindSubscribeButton();
 
-        // Proxies are cheap to build (no I/O). Creating them up front
-        // lets the popular prefetch below run beside the channel load.
+        // Proxies are cheap to build (no I/O). Creating them up front lets the popular prefetch below run beside the channel load.
         try {
             api = Manager.getInstance().getMetadata();
             channelApi = Manager.getInstance().getChannelApi();
@@ -125,9 +114,7 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
 
         loadChannelTask = new LoadChannelTask();
         loadChannelTask.execute(channelId);
-        // The header and the default "Popular" tab cost one request each:
-        // a raw thread runs them side by side, because Gingerbread would
-        // serialize two AsyncTasks onto one worker (halves the wait).
+        // The header and the default "Popular" tab cost one request each: a raw thread runs them side by side.
         startPopularPrefetch();
     }
 
@@ -175,11 +162,7 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
         }
     }
 
-    /**
-     * Rotation does not destroy this activity (android:configChanges).
-     * Here we simply swap in the layout matching the new orientation and
-     * re-bind what we already have in memory. Zero new network requests.
-     */
+    /** Rotation does not destroy this activity (android:configChanges). */
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
@@ -190,8 +173,7 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
     private void rebindAfterRotation() {
         String previousTab = currentTabTag;
 
-        // Fresh view tree: the system resolves portrait phone layout vs the
-        // tablet layout-large-land variant for the new orientation.
+        // Fresh view tree: the system resolves portrait phone layout vs the tablet layout-large-land variant for the new orientation.
         setContentView(R.layout.activity_channel);
 
         channelLayout = (LinearLayout) findViewById(R.id.channel);
@@ -203,7 +185,13 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
         if (channel != null) {
             if (loading != null) loading.setVisibility(View.GONE);
             ((TextView) findViewById(R.id.title)).setText(channel.title);
-            ((TextView) findViewById(R.id.subscribers)).setText(getString(R.string.subscribers, Utils.formatNumber(context, channel.subscriberCount)));
+            TextView subsView = (TextView) findViewById(R.id.subscribers);
+            if (channel.subscriberCount < 1) {
+                subsView.setVisibility(View.GONE);
+            } else {
+                subsView.setVisibility(View.VISIBLE);
+                subsView.setText(getString(R.string.subscribers, Utils.formatNumber(context, channel.subscriberCount)));
+            }
             ((TextView) findViewById(R.id.description)).setText(channel.description);
             ImageLoader.loadImage(channel.thumbnail, ((ImageView) findViewById(R.id.thumbnail)), false, null, 200);
             ImageLoader.loadImage(channel.banner, banner, false, null, 480);
@@ -217,8 +205,7 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
         }
 
         if (!tabsSetUp) {
-            // Channel metadata still loading: the in-flight task's callbacks
-            // findViewById the fresh views and set everything up when done.
+            // Channel metadata still loading: the in-flight task's callbacks findViewById the fresh views and set everything up when done.
             return;
         }
 
@@ -229,9 +216,7 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
             tabHost.setVisibility(View.VISIBLE);
         }
 
-        // Restore the playlists tab content even when it is not the
-        // visible tab, so switching to it later shows the data instead of
-        // a stale spinner.
+        // Restore the playlists tab content even when it is not the visible tab.
         if (playlistsLoading) {
             // nothing to do
         } else if (playlistsLoaded) {
@@ -254,12 +239,7 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
         subscribeButton.setText(subscribed ? R.string.subscribed_button : R.string.subscribe);
     }
 
-    /**
-     * Builds the channel tabs: Popular (default) / Videos / Playlists.
-     * Each tab binds what is in memory; missing data loads lazily,
-     * guarded by a flag so a rotation rebind never starts a duplicate
-     * request.
-     */
+    /** Builds the channel tabs: Popular (default) / Videos / Playlists. */
     private void setupTabs() {
         tabHost = (TabHost) findViewById(android.R.id.tabhost);
         tabHost.setup();
@@ -274,10 +254,7 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
                 .setIndicator(getString(R.string.videos))
                 .setContent(R.id.videos));
 
-        // NewPipe-style "Playlists" tab: the public playlists created by
-        // this YouTuber, loaded lazily on first visit. Registered only
-        // when the inflated layout has the tab (addTab throws for a
-        // missing content view).
+        // NewPipe-style "Playlists" tab: the public playlists created by this YouTuber, loaded lazily on first visit.
         ListView playlistsList = null;
         if (findViewById(R.id.playlists) != null) {
             tabHost.addTab(tabHost.newTabSpec("playlists").setIndicator(getString(R.string.playlists)).setContent(R.id.playlists));
@@ -310,8 +287,7 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
             });
         }
 
-        // Bind whatever is already in memory (rotation rebind), the tabs
-        // fetch lazily otherwise.
+        // Bind whatever is already in memory (rotation rebind), the tabs fetch lazily otherwise.
         bindPopularTab();
         bindVideosTab();
 
@@ -378,10 +354,7 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
         loadPopularVideosTask.execute(channelId);
     }
 
-    /** Same request as the Popular tab, but on its own worker thread so
-     *  it races the channel metadata instead of queueing behind it.
-     *  Until the tabs are set up the result only parks itself in
-     *  popularVideos; setupTabs() picks it up when the header is ready. */
+    // Same request as the Popular tab, on its own thread so it races the metadata load.
     private void startPopularPrefetch() {
         if (popularLoading || channelId == null || channelId.length() == 0) return;
         popularLoading = true;
@@ -402,8 +375,7 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
         }, "ch-popular").start();
     }
 
-    /** getChannelVideos with the ChannelApi fallback, shared by the
-     *  Popular and Videos tabs (sort: 1 = popular, 0 = latest). */
+    /** getChannelVideos with the ChannelApi fallback, shared by the Popular and Videos tabs (1 = popular, 0 = latest). */
     private List<VideoInfo> fetchChannelVideos(String id, int sort) {
         List<VideoInfo> result = null;
         try {
@@ -444,10 +416,7 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
         loadPlaylistsTask.execute(channelId);
     }
 
-    /**
-     * Installs the playlists results: list, or the empty/error text.
-     * @param playlists fetched list (empty = none, null = error)
-     */
+    /** Installs the playlists results: list, or the empty/error text. */
     private void displayPlaylists(List<ChannelPlaylist> playlists) {
         View loading = findViewById(R.id.playlists_loading);
         if (loading != null) loading.setVisibility(View.GONE);
@@ -473,10 +442,7 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
         }
     }
 
-    /**
-     * Row adapter for the public playlists of a channel (cheap,
-     * ViewHolder-less: a handful of visible rows).
-     */
+    /** Row adapter for the public playlists of a channel (cheap, ViewHolder-less: a handful of visible rows). */
     private class PlaylistAdapter extends BaseAdapter {
         private LayoutInflater inflater;
 
@@ -509,8 +475,7 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
                 count.setText("");
             }
             ImageView thumb = (ImageView) convertView.findViewById(R.id.playlist_thumbnail);
-            // Re-request only when the recycled row was bound to another
-            // playlist (avoids the load-flash while scrolling).
+            // Re-request only when the recycled row was bound to another playlist (avoids the load-flash while scrolling).
             String currentTag = (String) thumb.getTag();
             if (pl.thumbnail != null && pl.thumbnail.length() > 0) {
                 if (!pl.thumbnail.equals(currentTag)) {
@@ -564,7 +529,10 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
                 forYouList.setVisibility(View.GONE);
             } else {
                 forYouList.setVisibility(View.VISIBLE);
-                forYouAdapter = new VideoAdapter(context, R.layout.item_video_compact, fetchedVideos, true);
+                int forYouLayout = forYouList instanceof GridView
+                        ? R.layout.item_video_noicon
+                        : R.layout.item_video_compact;
+                forYouAdapter = new VideoAdapter(context, forYouLayout, fetchedVideos, true);
                 setAdapterForView(forYouList, forYouAdapter);
                 forYouList.setOnItemClickListener(new AdapterView.OnItemClickListener() {
                     @Override
@@ -592,7 +560,10 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
             }
         }
         if (fetchedVideos != null) {
-            videosAdapter = new VideoAdapter(context, R.layout.item_video_compact, fetchedVideos, true);
+            int layout = videosList instanceof GridView
+                    ? R.layout.item_video_noicon
+                    : R.layout.item_video_compact;
+            videosAdapter = new VideoAdapter(context, layout, fetchedVideos, true);
             setAdapterForView(videosList, videosAdapter);
             videosList.setOnItemClickListener(new AdapterView.OnItemClickListener() {
                 @Override
@@ -617,22 +588,17 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
             videosAdapter.notifyDataSetChanged();
         }
         if (channel != null && banner != null) {
-            // Banners are wide but shown at screen width: 480px decode
-            // keeps it sharp while sparing the heap.
+            // Banners are wide but shown at screen width: 480px decode keeps it sharp while sparing the heap.
             ImageLoader.loadImage(channel.banner, banner, true, null, 480);
         }
-        // The subscription state may have changed elsewhere — keep the
-        // button in sync.
+        // The subscription state may have changed elsewhere — keep the button in sync.
         updateSubscribeButton();
     }
 
-    /** ConnectivityMonitor: the network was down and is back. Retries
-     *  the loads that ended in an error; finished screens stay as they
-     *  are. */
+    /** ConnectivityMonitor: the network was down and is back. */
     public void onConnectionRestored() {
         if (isDestroyedFlag || channelId == null) return;
-        // The whole page died (no channel header): full retry, popular
-        // prefetch included.
+        // The whole page died (no channel header): full retry, popular prefetch included.
         if (channel == null) {
             if (loadChannelTask == null
                     || loadChannelTask.getStatus() != AsyncTask.Status.FINISHED) {
@@ -771,7 +737,13 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
             channelId = channel.id;
 
             ((TextView) findViewById(R.id.title)).setText(channel.title);
-            ((TextView) findViewById(R.id.subscribers)).setText(getString(R.string.subscribers, Utils.formatNumber(context, channel.subscriberCount)));
+            TextView subscribersView = (TextView) findViewById(R.id.subscribers);
+            if (channel.subscriberCount < 1) {
+                subscribersView.setVisibility(View.GONE);
+            } else {
+                subscribersView.setVisibility(View.VISIBLE);
+                subscribersView.setText(getString(R.string.subscribers, Utils.formatNumber(context, channel.subscriberCount)));
+            }
             ((TextView) findViewById(R.id.description)).setText(channel.description);
             ImageLoader.loadImage(channel.thumbnail, ((ImageView) findViewById(R.id.thumbnail)), false, null, 200);
             ImageLoader.loadImage(channel.banner, banner, false, null, 480);
@@ -785,9 +757,7 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
                 banner.setVisibility(View.VISIBLE);
             }
 
-            // The channel payload carries the LATEST videos; they feed the
-            // "Videos" tab without an extra request. The default "Popular"
-            // tab costs exactly one request on first paint.
+            // The channel payload carries the LATEST videos; they feed the "Videos" tab without an extra request.
             latestVideos = channel.videos;
 
             findViewById(R.id.loading).setVisibility(View.GONE);
@@ -798,10 +768,7 @@ public class ChannelActivity extends Activity implements ConnectivityMonitor.Lis
         }
     }
 
-    /**
-     * The most popular videos of THIS channel (sort=popular with the
-     * ChannelApi as fallback), shown in the default "Popular" tab.
-     */
+    /** The most popular videos of THIS channel (sort=popular with the ChannelApi as fallback) */
     private class LoadPopularVideosTask extends AsyncTask<String, Void, List<VideoInfo>> {
         @Override
         protected void onPreExecute() {

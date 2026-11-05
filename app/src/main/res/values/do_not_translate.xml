@@ -8,7 +8,9 @@
         <item>1080p</item>
     </string-array>
     <string-array name="codecs">
-        <item>MPEG-4 Visual</item>
+        <item>MPEG-4 Visual (270p)</item>
+        <item>MPEG-4 Visual (360p)</item>
         <item>H.263</item>
     </string-array>
+    <string name="instances_url_hint" translatable="false">http://144.31.189.129/notPipe.json</string>
 </resources>

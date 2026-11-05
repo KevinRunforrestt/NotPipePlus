@@ -2,20 +2,19 @@ package io.github.gohoski.notpipe.data;
 
 import java.util.Date;
 
-/**
- * One row of a video list. Use -1 for numeric values not available from
- * the API.
- */
+import io.github.gohoski.notpipe.Utils;
+
+/** One row of a video list. */
 public class VideoInfo {
     public final String title, thumbnail, id, channel, channelThumbnail, duration, channelId;
     public final long views;
     public final Date publishedAt;
 
     public VideoInfo(String id, String title, String thumbnail, String channel, String channelThumbnail, String channelId, String duration, long views, Date publishedAt) {
-        this.title = title;
+        this.title = Utils.stripEmoji(title);
         this.thumbnail = thumbnail;
         this.id = id;
-        this.channel = channel;
+        this.channel = Utils.stripEmoji(channel);
         this.channelThumbnail = channelThumbnail;
         this.duration = duration;
         this.views = views;

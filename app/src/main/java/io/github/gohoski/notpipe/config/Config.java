@@ -3,12 +3,9 @@ package io.github.gohoski.notpipe.config;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Created by opencode on 15.02.2026.
- * Data class holding user configuration settings.
- * Uses Java 1.5 compatible getters/setters (no Lombok/data classes).
- */
+/** Created by opencode on 15.02.2026. */
 public class Config {
+    public static final String DEFAULT_DOWNLOAD_FOLDER = "/sdcard/Download";
 
     // Subscriptions feed refresh modes (NewPipe-style, configurable).
     public static final int FEED_REFRESH_ON_OPEN = 0;
@@ -19,6 +16,7 @@ public class Config {
     private List<String> yt2009Instances;
     private List<String> pipedInstances;
     private List<String> ytApiLegacyInstances;
+    private List<String> typetypeInstances;
     private String preferredQuality;
     private boolean updateInstancesFromUrl;
     private String instancesUpdateUrl;
@@ -33,27 +31,32 @@ public class Config {
     private int feedRefreshMode;
     private int feedRefreshIntervalMinutes;
     private boolean hidePopularFeed;
+    private String downloadFolder;
+    private boolean hideShortsRecommendations;
+    private boolean hideShortsSubscriptions;
+    private int shortLengthSeconds;
 
     Config() {
         invidiousInstances = new ArrayList<String>();
         yt2009Instances = new ArrayList<String>();
         pipedInstances = new ArrayList<String>();
         ytApiLegacyInstances = new ArrayList<String>();
+        typetypeInstances = new ArrayList<String>();
         fullscreenRotateLandscape = true;
+        downloadFolder = DEFAULT_DOWNLOAD_FOLDER;
         // Feed refresh defaults: current behavior (load new videos on app
         // open) and a 1 hour auto interval when the interval mode is used.
         feedRefreshMode = FEED_REFRESH_ON_OPEN;
         feedRefreshIntervalMinutes = 60;
     }
 
-    /**
-     * Copy constructor for creating a defensive copy.
-     */
+    /** Copy constructor for creating a defensive copy. */
     public Config(Config other) {
         invidiousInstances = new ArrayList<String>(other.invidiousInstances);
         yt2009Instances = new ArrayList<String>(other.yt2009Instances);
         pipedInstances = new ArrayList<String>(other.pipedInstances);
         ytApiLegacyInstances = new ArrayList<String>(other.ytApiLegacyInstances);
+        typetypeInstances = new ArrayList<String>(other.typetypeInstances);
         preferredQuality = other.preferredQuality;
         updateInstancesFromUrl = other.updateInstancesFromUrl;
         instancesUpdateUrl = other.instancesUpdateUrl;
@@ -68,6 +71,10 @@ public class Config {
         feedRefreshMode = other.feedRefreshMode;
         feedRefreshIntervalMinutes = other.feedRefreshIntervalMinutes;
         hidePopularFeed = other.hidePopularFeed;
+        downloadFolder = other.downloadFolder;
+        hideShortsRecommendations = other.hideShortsRecommendations;
+        hideShortsSubscriptions = other.hideShortsSubscriptions;
+        shortLengthSeconds = other.shortLengthSeconds;
     }
 
     public List<String> getInvidiousInstances() {
@@ -100,6 +107,14 @@ public class Config {
 
     public void setYtApiLegacyInstances(List<String> instances) {
         this.ytApiLegacyInstances = instances;
+    }
+
+    public List<String> getTypeTypeInstances() {
+        return typetypeInstances;
+    }
+
+    public void setTypeTypeInstances(List<String> instances) {
+        this.typetypeInstances = instances;
     }
 
     public String getPreferredQuality() {
@@ -206,9 +221,7 @@ public class Config {
         this.feedRefreshIntervalMinutes = minutes;
     }
 
-    /** True when the user chose to hide the Popular feed completely and
-     *  keep only the Subscriptions feed (NewPipe has no forced "trending"
-     *  screen either). */
+    /** True when the user chose to hide the Popular feed completely and keep only the Subscriptions feed. */
     public boolean isHidePopularFeed() {
         return hidePopularFeed;
     }
@@ -217,15 +230,9 @@ public class Config {
         this.hidePopularFeed = hidePopularFeed;
     }
 
-    /**
-     * Add default instance. Called by ConfigManager.ensureInstancesConfigured()
-     * when all instance lists are empty.
-     */
+    /** Add default instance. */
     public void applyDefaults() {
-        // Live instances, probed 2026-10-30 against the app's own endpoints
-        // (the old single default was a dead server). The daily refresh
-        // (updateInstancesFromUrl below) keeps the list current; ytapilegacy
-        // has no live instances left, so it stays empty.
+        // Live instances, probed 2026-10-30 against the app's own endpoints (the old single default was a dead server).
         invidiousInstances.add("http://14.224.215.173:3000");
         invidiousInstances.add("http://61.221.6.111");
         invidiousInstances.add("http://160.236.192.102:3000");
@@ -260,5 +267,37 @@ public class Config {
         feedRefreshMode = FEED_REFRESH_ON_OPEN;
         feedRefreshIntervalMinutes = 60;
         hidePopularFeed = false;
+    }
+
+    public String getDownloadFolder() {
+        return downloadFolder;
+    }
+
+    public void setDownloadFolder(String folder) {
+        this.downloadFolder = folder;
+    }
+
+    public boolean isHideShortsRecommendations() {
+        return hideShortsRecommendations;
+    }
+
+    public void setHideShortsRecommendations(boolean hide) {
+        this.hideShortsRecommendations = hide;
+    }
+
+    public boolean isHideShortsSubscriptions() {
+        return hideShortsSubscriptions;
+    }
+
+    public void setHideShortsSubscriptions(boolean hide) {
+        this.hideShortsSubscriptions = hide;
+    }
+
+    public int getShortLengthSeconds() {
+        return shortLengthSeconds;
+    }
+
+    public void setShortLengthSeconds(int seconds) {
+        this.shortLengthSeconds = seconds;
     }
 }

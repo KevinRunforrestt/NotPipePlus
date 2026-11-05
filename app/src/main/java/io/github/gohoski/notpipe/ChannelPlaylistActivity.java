@@ -18,13 +18,7 @@ import io.github.gohoski.notpipe.data.VideoInfo;
 import io.github.gohoski.notpipe.ui.VideoAdapter;
 import io.github.gohoski.notpipe.util.ImageLoader;
 
-/**
- * Videos of one playlist. Two sources share this screen:
- *  - a channel's public playlist (EXTRA_ID is the PL id; videos are loaded
- *    through the metadata frontend with fallback);
- *  - a local playlist (EXTRA_ID is "local:<name>"; ids come from the
- *    Playlists store and are resolved to metadata rows one by one).
- */
+/** Videos of one playlist. */
 public class ChannelPlaylistActivity extends Activity {
 
     public static final String EXTRA_ID = "ID";
@@ -75,8 +69,7 @@ public class ChannelPlaylistActivity extends Activity {
             String id = params[0];
             try {
                 if (id != null && id.startsWith("local:")) {
-                    // Local playlist: resolve each stored id to a metadata
-                    // row (title/thumbnail) through the frontend.
+                    // Local playlist: resolve each stored id to a metadata row (title/thumbnail) through the frontend.
                     List<String> ids = Playlists.getVideos(id.substring(6));
                     List<VideoInfo> result = new ArrayList<VideoInfo>();
                     Metadata api = null;

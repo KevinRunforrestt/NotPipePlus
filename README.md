@@ -15,6 +15,7 @@ List of supported APIs:
 * [Invidious](https://docs.invidious.io/api/) (metadata, 360p)
 * [yt2009](https://github.com/ftde0/yt2009) (all qualities, conversion, channels)
 * [Piped](https://docs.piped.video/docs/api-documentation/) (metadata, 360p)
+* [TypeType](https://typetype.video) (metadata, all qualities, channels)
 * [YtAPILegacy](https://github.com/ZendoMusic/yt-api-legacy) (metadata, all qualities, conversion)
 
 ## 📥 Download

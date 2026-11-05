@@ -21,9 +21,7 @@ import io.github.gohoski.notpipe.http.HttpClient;
 import io.github.gohoski.notpipe.http.HttpRequest;
 import io.github.gohoski.notpipe.util.ImageRoutes;
 
-/**
- * Created by Gleb on 05.06.2026.
- */
+/** Created by Gleb on 05.06.2026. */
 class Piped implements Metadata, VideoStream {
     private String baseUrl, proxyUrl;
     Piped(String baseUrl, String proxyUrl) {
@@ -36,21 +34,14 @@ class Piped implements Metadata, VideoStream {
         return replaceAll(replaceAll(baseUrl, "https://", ""), "http://", "");
     }
 
-    /** Video thumbnail: routed through an Invidious instance image route
-     *  (the Piped image proxies are unreachable from some networks, which
-     *  blanked every thumbnail outside the subscriptions feed). When no
-     *  Invidious instance is configured the thumbnail falls back to the
-     *  original notPipe form: the image proxy paired with this instance. */
+    /** Video thumbnail: routed through an Invidious image route (Piped proxies are unreachable). */
     private String thumbUrl(String videoId) {
         String routed = ImageRoutes.videoThumb(videoId);
         if (routed.length() > 0) return routed;
         return proxyUrl + "/vi/" + videoId + "/mqdefault.jpg?host=i.ytimg.com&rewrite=false";
     }
 
-    /** Avatar URL through an Invidious /ggpht image route (webp -> jpg);
-     *  empty when the row carried a JSON-null avatar. Without Invidious
-     *  instances the avatar falls back to the paired Piped image proxy
-     *  (original notPipe form, also upgraded to jpg). */
+    /** Avatar URL through an Invidious /ggpht image route (webp -> jpg); empty when the row carried a JSON-null avatar. */
     private String avatarUrl(String raw) {
         if (raw == null || raw.length() == 0) return "";
         String routed = ImageRoutes.avatar(raw);
@@ -58,8 +49,7 @@ class Piped implements Metadata, VideoStream {
         return Utils.parseUrl(proxyUrl, upgradeAvatarToJpeg(raw) + "&rewrite=false");
     }
 
-    /** Comment avatar through an Invidious /ggpht route, upgraded to
-     *  jpg the same way; same paired-proxy fallback as avatarUrl. */
+    /** Comment avatar through an Invidious /ggpht route, upgraded to jpg the same way. */
     private String commentAvatarUrl(String raw) {
         if (raw == null || raw.length() == 0) return null;
         String routed = ImageRoutes.avatar(raw);
@@ -67,11 +57,7 @@ class Piped implements Metadata, VideoStream {
         return Utils.parseUrl(proxyUrl, upgradeAvatarToJpeg(raw) + "&rewrite=false");
     }
 
-    /** Upgrades the webp format flag ("-rw") of a proxied avatar URL to
-     *  jpeg ("-rj"): Android 2.3 cannot decode WebP. The flag sits right
-     *  before "?host=" — the classic "...-no-rw?host=" form and the newer
-     *  "...-no-rw-mo?host=" one (channel search thumbnails) — so the
-     *  base64 body of the URL is never touched. */
+    /** Upgrades the webp format flag ("-rw") of a proxied avatar URL to jpeg ("-rj"): Android 2.3 cannot decode WebP. */
     private static String upgradeAvatarToJpeg(String raw) {
         int hostAt = raw.indexOf("?host=");
         if (hostAt == -1) return raw;
@@ -85,12 +71,7 @@ class Piped implements Metadata, VideoStream {
         return raw;
     }
 
-    /**
-     * Popular feed: the hype playlist first (only counts when it has
-     * items), then /trending?region=US. An empty result throws so the
-     * instance chain advances instead of painting "no videos"; one bad
-     * row never kills the feed (per-item try/catch).
-     */
+    /** Popular feed: the hype playlist first (only counts when it has items), then /trending?region=US. */
     @Override
     public List<VideoInfo> getPopularVideos() throws IOException {
         List<VideoInfo> videos = new ArrayList<VideoInfo>();
@@ -167,10 +148,7 @@ class Piped implements Metadata, VideoStream {
         return videos;
     }
 
-    /**
-     * Paginated search: the first page answers with an opaque nextpage
-     * token; further pages come from /nextpage/search with it.
-     */
+    /** Paginated search: the first page answers with an opaque nextpage token. */
     @Override
     public SearchPage searchPage(String q, String nextToken) throws IOException {
         HttpRequest req;
@@ -221,7 +199,7 @@ class Piped implements Metadata, VideoStream {
         JSONObject json = JSON.getObject(HttpClient.executeToString(req));
         try {
             String error = json.getString("error"), message = json.getString("message");
-            if (error.length() > 0 && !(message.contains("bot") || message.contains("protect") || message.contains("page"))) {
+            if (error.length() > 0 && !Utils.isYouTubeBlockingError(message)) {
                 throw new ContentUnavailableException(message);
             }
         } catch (JSONException ignored) {}
@@ -256,19 +234,14 @@ class Piped implements Metadata, VideoStream {
         return getCommentsPage(id).comments;
     }
 
-    /**
-     * Paginated comments: the first page carries the nextpage token of the
-     * next one; pinned comments ("pinned" on the row) arrive first and are
-     * badged like NewPipe does.
-     */
+    /** Paginated comments: the first page carries the nextpage token of the next one. */
     @Override
     public CommentsPage getCommentsPage(String id) throws IOException {
         HttpRequest req = new HttpRequest(baseUrl, "/comments/" + id);
         JSONObject json = JSON.getObject(HttpClient.executeToString(req));
         checkCommentsError(json);
         List<Comment> comments = parseCommentRows(json.getArray("comments"), id);
-        // A positive advertised count with zero extracted rows means this
-        // instance failed the extraction: let the Manager move on.
+        // A positive advertised count with zero extracted rows means this instance failed the extraction: let the Manager move on.
         if (comments.isEmpty() && !json.getBoolean("disabled", false)) {
             long commentCount = -1;
             try {
@@ -323,10 +296,7 @@ class Piped implements Metadata, VideoStream {
         return comments;
     }
 
-    /**
-     * Parses a further comments page (?nextpage=...); same schema as the
-     * first page. Called by Manager when the UI scrolls to the end.
-     */
+    /** Parses a further comments page (?nextpage=...); same schema as the first page. */
     CommentsPage parseMoreComments(String body, String videoId) throws IOException {
         JSONObject root = JSON.getObject(body);
         checkCommentsError(root);
@@ -339,14 +309,9 @@ class Piped implements Metadata, VideoStream {
         return new CommentsPage(rows, moreUrl, Comment.BACKEND_PIPED);
     }
 
-    /**
-     * One comment row of /comments/{id}. Replies are advertised as a count
-     * plus a "repliesPage" continuation token, fetched on expand
-     * (NewPipe's behavior).
-     */
+    /** One comment row of /comments/{id}. */
     private Comment parseCommentRow(JSONObject j, String videoId) throws JSONException {
-        // Author thumbnails are JSON null on many instances: keep the
-        // avatar empty instead of building a broken "null-..." URL.
+        // Author thumbnails are JSON null on many instances: keep the avatar empty instead of building a broken "null-..." URL.
         String avatar = null;
         String thumb = j.getNullableString("thumbnail");
         if (thumb != null && thumb.length() > 0) {
@@ -373,11 +338,7 @@ class Piped implements Metadata, VideoStream {
         return c;
     }
 
-    /**
-     * Parses one replies page (?nextpage=...) into Comment rows; the schema
-     * matches the top-level comment rows. Called by
-     * Manager.parseCommentReplies when the user expands a comment.
-     */
+    /** Parses one replies page (?nextpage=...) into Comment rows; the schema matches the top-level comment rows. */
     List<Comment> parseReplies(String json) throws IOException {
         JSONObject root = JSON.getObject(json);
         if (root.has("error")) {
@@ -430,11 +391,7 @@ class Piped implements Metadata, VideoStream {
         return reply;
     }
 
-    /**
-     * Public playlists created by a channel: not exposed by this frontend
-     * in a parseable shape — throw so the Manager falls back to Invidious
-     * (whose /api/v1/channels/{id}/playlists serves them natively).
-     */
+    /** Public playlists created by a channel: not exposed by this frontend in a parseable shape. */
     @Override
     public List<ChannelPlaylist> getChannelPlaylists(String id) throws IOException {
         throw new IOException("Channel playlists not supported on Piped");
@@ -476,12 +433,7 @@ class Piped implements Metadata, VideoStream {
         return videos;
     }
 
-    /**
-     * Caption tracks via /streams/{id}.subtitles[]. The URLs are YouTube
-     * timedtext links served through the instance proxy and default to
-     * TTML; asking for fmt=vtt returns plain WebVTT, which the built-in
-     * renderer can parse.
-     */
+    /** Caption tracks via /streams/{id}.subtitles[]. */
     @Override
     public List<SubtitleTrack> getSubtitles(String videoId) throws IOException {
         HttpRequest req = new HttpRequest(baseUrl, "/streams/" + videoId);
@@ -495,15 +447,11 @@ class Piped implements Metadata, VideoStream {
             try {
                 String url = j.getString("url");
                 if (url == null || url.length() == 0) continue;
-                // Some builds advertise the caption as a path on their own
-                // proxy ("/api/timedtext?...") instead of a full URL.
+                // Some builds advertise the caption as a path on their own proxy ("/api/timedtext?...") instead of a full URL.
                 if (url.startsWith("/")) {
                     url = proxyUrl + url;
                 }
                 // WebVTT is far lighter to parse than TTML on old devices.
-                // The raw URLs announce TTML ("fmt=ttml"); asking the proxy
-                // for fmt=vtt returns real WebVTT. Some builds omit the fmt
-                // parameter entirely and then serve TTML — ask for VTT too.
                 if (url.contains("fmt=ttml")) {
                     url = replaceAll(url, "fmt=ttml", "fmt=vtt");
                 } else if (url.indexOf("timedtext") != -1 && url.indexOf("fmt=") == -1) {
@@ -576,17 +524,29 @@ class Piped implements Metadata, VideoStream {
 
     @Override
     public String getChannelIcon(String id) throws IOException {
-        HttpRequest req = new HttpRequest(baseUrl, "/channel/"+id);
-        return avatarUrl(JSON.getObject(HttpClient.executeToString(req)).getString("avatarUrl"));
+        String avatarUrl;
+        if (id.startsWith("UC")) {
+            HttpRequest req = new HttpRequest(baseUrl, "/channel/" + id);
+            avatarUrl = JSON.getObject(HttpClient.executeToString(req)).getString("avatarUrl");
+        } else {
+            HttpRequest req = new HttpRequest.Builder(baseUrl, "/search").addParam("q", id).addParam("filter", "channels").build();
+            avatarUrl = JSON.getObject(HttpClient.executeToString(req)).getArray("items").getObject(0).getString("thumbnail");
+        }
+        return avatarUrl(avatarUrl);
     }
 
     @Override
     public List<VideoInfo> getChannelVideos(String id, int sort) throws IOException {
         List<VideoInfo> videos = new ArrayList<VideoInfo>();
-        if (sort != 0) // We can get only latest channel videos
-            return videos;
-        HttpRequest req = new HttpRequest(baseUrl, "/playlists/UU" + id.substring(2));
+        HttpRequest req = new HttpRequest(baseUrl, "/playlists/" + (sort == 0 ? "UU" : "UULP") + id.substring(2));
         JSONObject json = JSON.getObject(HttpClient.executeToString(req));
+        try {
+            String error = json.getString("error");
+            String message = json.getString("message", "");
+            if (error.length() > 0 && !Utils.isYouTubeBlockingError(message)) {
+                throw new ContentUnavailableException(message.length() > 0 ? message : error);
+            }
+        } catch (JSONException ignored) {}
         JSONArray arr = json.getArray("relatedStreams");
         for (int i = 0; i < arr.size(); i++) {
             try {
@@ -600,8 +560,7 @@ class Piped implements Metadata, VideoStream {
         return videos;
     }
 
-    /** Strips HTML from a Piped description: <br> to newline, links become
-     *  "text (url)", everything else is dropped. */
+    /** Strips HTML from a Piped description: <br> to newline, links become "text (url)", everything else is dropped. */
     private static String cleanHtml(String html) {
         if (html == null) return null;
 

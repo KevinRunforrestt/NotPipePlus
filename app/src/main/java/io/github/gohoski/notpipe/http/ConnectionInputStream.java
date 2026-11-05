@@ -1,9 +1,6 @@
 package io.github.gohoski.notpipe.http;
 
-/**
- * Created by Gleb on 23.08.2025.
- * InputStream that automatically closes the connection
- */
+/** Created by Gleb on 23.08.2025. */
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -66,10 +63,8 @@ class ConnectionInputStream extends InputStream {
     public boolean markSupported() {
         return inputStream.markSupported();
     }
-    
-    /**
-     * Returns the content length of the response, or -1 if not known
-     */
+
+    /** Returns the content length of the response, or -1 if not known. */
     public long getContentLength() {
         return connection.getContentLength();
     }

@@ -25,25 +25,25 @@ import java.io.IOException;
 import java.io.OutputStream;
 
 public abstract class AbstractJSON {
-	
+
 	// common methods for both JSONObject and JSONArray
 
 	public abstract void clear();
-	
+
 	public abstract int size();
-	
+
 	public abstract String toString();
-	
+
 	public abstract String build();
-	
+
 	public final String format() {
 		return format(0);
 	}
-	
+
 	public abstract void write(OutputStream out) throws IOException;
-	
+
 	protected abstract String format(int l);
-	
+
 	public abstract boolean similar(Object obj);
 
 }

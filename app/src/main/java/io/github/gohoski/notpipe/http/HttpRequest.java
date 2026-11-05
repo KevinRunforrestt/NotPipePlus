@@ -11,6 +11,7 @@ public class HttpRequest {
     private final String endpoint;
     private final String method;
     private final Map<String, String> headers;
+    private String body = "";
 
     public HttpRequest(String baseUrl, String endpoint) {
         this(baseUrl, endpoint, "GET");
@@ -39,10 +40,15 @@ public class HttpRequest {
         headers.put(key, value);
     }
 
+    public void setBody(String body) {
+        this.body = body;
+    }
+
     public String getBaseUrl() { return baseUrl; }
     public String getEndpoint() { return endpoint; }
     public String getMethod() { return method; }
     public Map<String, String> getHeaders() { return headers; }
+    public String getBody() { return body; }
 
     public static class Builder {
         private final String baseUrl;
@@ -50,6 +56,7 @@ public class HttpRequest {
         private final String method;
         private final Map<String, String> params = new HashMap<String, String>();
         private final Map<String, String> headers = new HashMap<String, String>();
+        private String body = "";
 
         public Builder(String baseUrl, String endpoint) {
             this(baseUrl, endpoint, "GET");
@@ -68,6 +75,11 @@ public class HttpRequest {
 
         public Builder addHeader(String key, String value) {
             headers.put(key, value);
+            return this;
+        }
+
+        public Builder body(String body) {
+            this.body = body;
             return this;
         }
 
@@ -91,6 +103,7 @@ public class HttpRequest {
             for (Map.Entry<String, String> entry : headers.entrySet()) {
                 request.addHeader(entry.getKey(), entry.getValue());
             }
+            request.setBody(body);
             return request;
         }
     }

@@ -14,10 +14,7 @@ import java.util.List;
 
 import io.github.gohoski.notpipe.R;
 
-/**
- * Reusable component for managing API instances.
- * Displays a section with title, list of instances, and add functionality.
- */
+/** Reusable component for managing API instances. */
 public class InstanceSection extends LinearLayout {
 
     private TextView titleView;
@@ -129,7 +126,7 @@ public class InstanceSection extends LinearLayout {
         instances = getInstances();
 
         if (instances.contains(url)) {
-            Toast.makeText(context, "Instance already exists", Toast.LENGTH_SHORT).show();
+            Toast.makeText(context, R.string.instance_exist, Toast.LENGTH_SHORT).show();
             return;
         }
         addInstanceRow(url);
@@ -141,10 +138,7 @@ public class InstanceSection extends LinearLayout {
         instancesContainer.removeView(rowView);
     }
 
-    /**
-     * Reads directly from the dynamically created Views to ensure
-     * manual edits made by the user are properly saved.
-     */
+    /** Reads directly from the dynamically created Views to ensure manual edits made by the user are properly saved. */
     public List<String> getInstances() {
         List<String> updatedInstances = new ArrayList<String>();
 
@@ -169,9 +163,7 @@ public class InstanceSection extends LinearLayout {
         return instances;
     }
 
-    /**
-     * Updates the internal instances list and refreshes the UI.
-     */
+    /** Updates the internal instances list and refreshes the UI. */
     public void setInstances(List<String> instances) {
         this.instances = instances;
         loadInstances();

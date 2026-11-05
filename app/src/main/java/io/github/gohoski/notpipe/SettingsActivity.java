@@ -20,10 +20,7 @@ import io.github.gohoski.notpipe.config.ConfigManager;
 import io.github.gohoski.notpipe.ui.InstanceSection;
 import io.github.gohoski.notpipe.util.InstancesUpdater;
 
-/**
- * Settings activity for managing API instances and app settings.
- * API instances are added programmatically, general settings are in the layout.
- */
+/** Settings activity for managing API instances and app settings. */
 public class SettingsActivity extends Activity implements InstancesUpdater.OnInstancesUpdatedListener {
     /** Minutes offered by the feed auto-update interval spinner. */
     private static final int[] FEED_INTERVAL_MINUTES = { 15, 30, 60, 180, 360, 720, 1440 };
@@ -31,6 +28,8 @@ public class SettingsActivity extends Activity implements InstancesUpdater.OnIns
     private LinearLayout apiInstancesContainer;
     private CheckBox updateInstancesChk, streamPlaybackChk, convertVideosChk, asyncUriChk;
     private CheckBox fullscreenRotateChk;
+    private CheckBox hideShortsRecChk, hideShortsSubsChk;
+    private EditText shortLengthEdit;
     private LinearLayout updateInstancesLayout, convertLayout, feedIntervalLayout;
     private EditText instancesUrlEdit;
     private Spinner updateFreqSpinner, playerSpinner, codecSpinner;
@@ -41,6 +40,7 @@ public class SettingsActivity extends Activity implements InstancesUpdater.OnIns
     private InstanceSection ytApiLegacySection;
     private InstanceSection yt2009Section;
     private InstanceSection pipedSection;
+    private InstanceSection typetypeSection;
 
     private ConfigManager configManager;
     private Config config;
@@ -72,9 +72,33 @@ public class SettingsActivity extends Activity implements InstancesUpdater.OnIns
         feedIntervalSpinner = (Spinner) findViewById(R.id.feed_interval_spinner);
         feedIntervalLayout = (LinearLayout) findViewById(R.id.feed_interval_layout);
         hidePopularChk = (CheckBox) findViewById(R.id.hide_popular_chk);
+        hideShortsRecChk = (CheckBox) findViewById(R.id.hide_shorts_rec_chk);
+        hideShortsSubsChk = (CheckBox) findViewById(R.id.hide_shorts_subs_chk);
+        shortLengthEdit = (EditText) findViewById(R.id.short_length_edit);
 
-        // The auto-update interval row only makes sense for the interval
-        // mode; hide it otherwise to keep the settings screen short.
+        hideShortsRecChk.setChecked(config.isHideShortsRecommendations());
+        hideShortsSubsChk.setChecked(config.isHideShortsSubscriptions());
+        shortLengthEdit.setText(String.valueOf(config.getShortLengthSeconds()));
+
+        // 1080p is still experimental: warn right in the spinner.
+        qualitySpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                if ("1080p".equals(parent.getItemAtPosition(position))) {
+                    new android.app.AlertDialog.Builder(context)
+                            .setTitle(android.R.string.dialog_alert_title)
+                            .setMessage(R.string.experimental_1080)
+                            .setPositiveButton(android.R.string.ok, null)
+                            .show();
+                }
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        });
+
+        // The auto-update interval row only makes sense for the interval mode; hide it otherwise to keep the settings screen short.
         feedModeSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
@@ -106,16 +130,12 @@ public class SettingsActivity extends Activity implements InstancesUpdater.OnIns
                     convertLayout.setVisibility(View.VISIBLE);
                     setSpinnerSelection(qualitySpinner, "360p");
                     playerSpinner.setSelection(0);
-                    streamPlaybackChk.setChecked(false);
                     qualitySpinner.setEnabled(false);
-                    streamPlaybackChk.setEnabled(false);
                 } else {
                     convertLayout.setVisibility(View.GONE);
                     qualitySpinner.setEnabled(true);
-                    streamPlaybackChk.setEnabled(true);
                     if (NotPipe.SDK < 11) {
                         playerSpinner.setSelection(1);
-                        streamPlaybackChk.setChecked(true);
                     }
                 }
             }
@@ -152,17 +172,18 @@ public class SettingsActivity extends Activity implements InstancesUpdater.OnIns
 
         if (config.isConvertVideos()) {
             qualitySpinner.setEnabled(false);
-            streamPlaybackChk.setEnabled(false);
         }
 
         invidiousSection = new InstanceSection(context, "Invidious", config.getInvidiousInstances());
-        ytApiLegacySection = new InstanceSection(context, "YtAPILegacy", config.getYtApiLegacyInstances());
         yt2009Section = new InstanceSection(context, "yt2009", config.getYt2009Instances());
         pipedSection = new InstanceSection(context, "Piped", config.getPipedInstances());
+        typetypeSection = new InstanceSection(context, "TypeType", config.getTypeTypeInstances());
+        ytApiLegacySection = new InstanceSection(context, "YtAPILegacy", config.getYtApiLegacyInstances());
 
         apiInstancesContainer.addView(invidiousSection);
         apiInstancesContainer.addView(yt2009Section);
         apiInstancesContainer.addView(pipedSection);
+        apiInstancesContainer.addView(typetypeSection);
         apiInstancesContainer.addView(ytApiLegacySection);
 
         findViewById(R.id.cancel).setOnClickListener(new View.OnClickListener() {
@@ -206,11 +227,19 @@ public class SettingsActivity extends Activity implements InstancesUpdater.OnIns
             config.setFeedRefreshIntervalMinutes(FEED_INTERVAL_MINUTES[intervalPos]);
         }
         config.setHidePopularFeed(hidePopularChk != null && hidePopularChk.isChecked());
+        config.setHideShortsRecommendations(hideShortsRecChk.isChecked());
+        config.setHideShortsSubscriptions(hideShortsSubsChk.isChecked());
+        int shortLength = 90;
+        try {
+            shortLength = Integer.parseInt(shortLengthEdit.getText().toString().trim());
+        } catch (Exception ignored) {}
+        config.setShortLengthSeconds(shortLength);
 
         config.setInvidiousInstances(invidiousSection.getInstances());
-        config.setYtApiLegacyInstances(ytApiLegacySection.getInstances());
         config.setYt2009Instances(yt2009Section.getInstances());
         config.setPipedInstances(pipedSection.getInstances());
+        config.setTypeTypeInstances(typetypeSection.getInstances());
+        config.setYtApiLegacyInstances(ytApiLegacySection.getInstances());
 
         configManager.saveConfig(config);
         Manager.getInstance().reloadInstances();
@@ -237,9 +266,10 @@ public class SettingsActivity extends Activity implements InstancesUpdater.OnIns
     public void onInstancesUpdated() {
         config = configManager.getConfig();
         invidiousSection.setInstances(config.getInvidiousInstances());
-        ytApiLegacySection.setInstances(config.getYtApiLegacyInstances());
         yt2009Section.setInstances(config.getYt2009Instances());
         pipedSection.setInstances(config.getPipedInstances());
+        typetypeSection.setInstances(config.getTypeTypeInstances());
+        ytApiLegacySection.setInstances(config.getYtApiLegacyInstances());
         Toast.makeText(this, R.string.ins_upd, Toast.LENGTH_SHORT).show();
     }
 }

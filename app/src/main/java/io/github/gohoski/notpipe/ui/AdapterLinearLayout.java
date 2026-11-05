@@ -9,13 +9,7 @@ import android.widget.LinearLayout;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * A simple LinearLayout that supports adapters like ListView.
- * Unlike ListView, this expands to fit all items and doesn't scroll internally,
- * making it suitable for use inside ScrollView on Android 1.6+.
- * 
- * Note: Creates ALL child views immediately. Adapters should handle lazy loading themselves.
- */
+/** A simple LinearLayout that supports adapters like ListView. */
 public class AdapterLinearLayout extends LinearLayout {
     private Adapter adapter;
     private OnItemClickListener onItemClickListener;
@@ -38,9 +32,7 @@ public class AdapterLinearLayout extends LinearLayout {
         dataSetObserver = new DataSetObserver();
     }
 
-    /**
-     * Sets the adapter for this view.
-     */
+    /** Sets the adapter for this view. */
     public void setAdapter(Adapter adapter) {
         if (this.adapter != null) {
             this.adapter.unregisterDataSetObserver(dataSetObserver);
@@ -52,16 +44,12 @@ public class AdapterLinearLayout extends LinearLayout {
         refreshViews();
     }
 
-    /**
-     * Sets a listener for item clicks.
-     */
+    /** Sets a listener for item clicks. */
     public void setOnItemClickListener(OnItemClickListener listener) {
         this.onItemClickListener = listener;
     }
 
-    /**
-     * Refreshes all child views based on adapter data.
-     */
+    /** Refreshes all child views based on adapter data. */
     private void refreshViews() {
         childViews.clear();
         removeAllViews();
@@ -94,11 +82,8 @@ public class AdapterLinearLayout extends LinearLayout {
         requestLayout();
         invalidate();
     }
-    
-    /**
-     * Updates specific child views without recreating the entire list.
-     * Call this when only certain items need to be refreshed.
-     */
+
+    /** Updates specific child views without recreating the entire list. */
     public void updateViews() {
         if (adapter == null) return;
         for (int i = 0; i < childViews.size() && i < adapter.getCount(); i++) {
@@ -109,16 +94,12 @@ public class AdapterLinearLayout extends LinearLayout {
         invalidate();
     }
 
-    /**
-     * Interface for item click callbacks.
-     */
+    /** Interface for item click callbacks. */
     public interface OnItemClickListener {
         void onItemClick(AdapterLinearLayout parent, View view, int position, long id);
     }
 
-    /**
-     * DataSetObserver implementation to watch for adapter changes.
-     */
+    /** DataSetObserver implementation to watch for adapter changes. */
     private class DataSetObserver extends android.database.DataSetObserver {
         @Override
         public void onChanged() {

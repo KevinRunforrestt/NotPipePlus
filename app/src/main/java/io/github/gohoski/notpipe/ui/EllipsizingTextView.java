@@ -9,12 +9,7 @@ import android.widget.TextView;
 
 import io.github.gohoski.notpipe.NotPipe;
 
-/**
- * Created by Gleb on 11.06.2026.
- * Custom TextView that handles multi-line ellipsizing.
- * On API < 11 (Android 1.x/2.x), it acts as a standard TextView to avoid
- * StackOverflowErrors on devices with tiny thread stacks (8 KB).
- */
+/** Created by Gleb on 11.06.2026. */
 public class EllipsizingTextView extends TextView {
     private static final String ELLIPSIS = "...";
 

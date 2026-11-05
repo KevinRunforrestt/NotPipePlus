@@ -5,10 +5,7 @@ import java.util.List;
 
 import io.github.gohoski.notpipe.Utils;
 
-/**
- * Created by Gleb on 12.01.2026.
- * Use -1 for int values if not available from API
- */
+/** Created by Gleb on 12.01.2026. */
 
 public class Video extends VideoInfo {
     public final int likes, subscribers, length;
@@ -18,7 +15,7 @@ public class Video extends VideoInfo {
 
     public Video(String id, String title, String thumbnail, String channel, String channelThumbnail, String channelId, int length, long views, Date publishedAt, String description, int likes, int subscribers, String videoUrl, List<VideoInfo> related, List<Comment> comments) {
         super(id, title, thumbnail, channel, channelThumbnail, channelId, Utils.formatDuration(length), views, publishedAt);
-        this.description = description;
+        this.description = Utils.stripEmoji(description);
         this.likes = likes;
         this.subscribers = subscribers;
         this.videoUrl = videoUrl;
@@ -29,7 +26,7 @@ public class Video extends VideoInfo {
 
     public Video(String id, String title, String thumbnail, String channel, String channelThumbnail, String channelId, String duration, int length, long views, Date publishedAt, String description, int likes, int subscribers, String videoUrl, List<VideoInfo> related, List<Comment> comments) {
         super(id, title, thumbnail, channel, channelThumbnail, channelId, duration, views, publishedAt);
-        this.description = description;
+        this.description = Utils.stripEmoji(description);
         this.likes = likes;
         this.subscribers = subscribers;
         this.videoUrl = videoUrl;

@@ -68,7 +68,7 @@
     <string name="url">Enter URL</string>
     <string name="updating_instances">Updating instances</string>
     <string name="conversion">Conversion</string>
-    <string name="conversion_">Conversion may help if your device does not support H.264 and MX Player is slow or not available. Conversion is available only for YtAPILegacy instances and is tried first. SD card required. With conversion, please do not try to view long videos. <b>Do not enable if videos are playing normally.</b></string>
+    <string name="conversion_">Conversion may help if your device does not support H.264 and MX Player is slow or not available. Conversion is available only with yt2009 and YtAPILegacy instances. SD card is required only when stream playback is disabled. <b>Do not enable if videos are playing normally.</b></string>
     <string name="convert_videos">Convert videos</string>
     <string name="video_codec">Video codec</string>
     <string name="setting_footer">notPipe — YouTube client for legacy Android\n▶ github.com/gohoski/notPipe\n▶ t.me/AppDataApps</string>
@@ -193,4 +193,32 @@
     <string name="no_channel_popular">Could not load the channel\'s most popular videos.</string>
 
     <!-- Search results -->
+    <string name="instance_exist">Instance already exists</string>
+    <string name="hide_shorts">Hide Shorts</string>
+    <string name="hide_shorts_length">Hide videos shorter than</string>
+    <string name="hide_shorts_recommendations">Hide Shorts in recommendations</string>
+    <string name="hide_shorts_subscriptions">Hide Shorts in subscriptions</string>
+    <string name="share_menu_title">Share via</string>
+    <string name="copy_link">Copy link</string>
+    <string name="link_copied">Link copied to clipboard</string>
+    <string name="downloading">Downloading video…</string>
+    <string name="resolving_stream">Fetching stream URL…</string>
+    <string name="download_complete">Download completed: %s</string>
+    <string name="download_failed">Download failed</string>
+    <string name="download_speed_only">%1$d KB/s</string>
+    <string name="download_folder">Download folder</string>
+    <string name="instance">Instance</string>
+    <string name="auto">Auto</string>
+    <string name="invalid_path">Please enter a valid absolute folder path</string>
+    <string name="download_instance_failed">Failed to fetch the stream from %s</string>
+    <string name="search_failed">Search failed: %s</string>
+    <string name="update_failed">Update failed: %s</string>
+    <string name="stream_failed_retries">Stream failed after multiple attempts.</string>
+    <string name="stream_timeout_retries">Video stream timed out after multiple attempts.</string>
+    <string name="wait_for_load">Please wait for video to load</string>
+    <string name="all_instances_failed">All instances failed to provide video.</string>
+    <string name="instance_connect_failed">Failed to connect to this instance.</string>
+    <string name="fetch_video_url_failed">Failed to fetch video URL</string>
+    <string name="download_failed_retries">Download failed after multiple attempts.</string>
+    <string name="download">Download</string>
 </resources>

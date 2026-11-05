@@ -15,17 +15,12 @@
 *
 */
 
-
 package cc.nnproject.json;
 
 import java.io.IOException;
 import java.io.Reader;
 
-/**
- * Buffered wrapper for Readers.
- *
- * @see java.io.BufferedReader
- */
+/** Buffered wrapper for Readers. */
 public class BufferedReader extends Reader
 {
     /** Default buffer size. */
@@ -37,25 +32,19 @@ public class BufferedReader extends Reader
     /** Character buffer. */
     private char[] iBuf = null;
 
-    /** Amount of characters in the buffer.
-        Value must be between zero and iBuf.length. */
+    /** Amount of characters in the buffer. */
     private int iBufAmount = 0;
 
-    /** Current read position in the buffer.
-        Value must be between zero and iBuf.length. */
+    /** Current read position in the buffer. */
     private int iBufPos = 0;
 
-    /**
-     * @see java.io.BufferedReader#Constructor(java.io.Reader)
-     */
+    /** @see java.io.BufferedReader#Constructor(java.io.Reader) */
     public BufferedReader(Reader aIn)
     {
         this(aIn, BUF_SIZE);
     }
 
-    /**
-     * @see java.io.BufferedReader#Constructor(java.io.Reader, int)
-     */
+    /** @see java.io.BufferedReader#Constructor(java.io.Reader, int) */
     public BufferedReader(Reader aIn, int aSize)
     {
         if (aSize <= 0)
@@ -67,9 +56,7 @@ public class BufferedReader extends Reader
         iReader = aIn;
     }
 
-    /**
-     * @see java.io.BufferedReader#close()
-     */
+    /** @see java.io.BufferedReader#close() */
     public void close() throws IOException
     {
         iBuf = null;
@@ -81,9 +68,7 @@ public class BufferedReader extends Reader
         }
     }
 
-    /**
-     * @see java.io.BufferedReader#read()
-     */
+    /** @see java.io.BufferedReader#read() */
     public int read() throws IOException
     {
         int result = 0;
@@ -98,17 +83,13 @@ public class BufferedReader extends Reader
         return result;
     }
 
-    /**
-     * @see java.io.BufferedReader#read(char[])
-     */
+    /** @see java.io.BufferedReader#read(char[]) */
     public int read(char[] aBuf) throws IOException
     {
         return read(aBuf, 0, aBuf.length);
     }
 
-    /**
-     * @see java.io.BufferedReader#read(char[], int, int)
-     */
+    /** @see java.io.BufferedReader#read(char[], int, int) */
     public int read(char[] aBuf, int aOffset, int aLength) throws IOException
     {
         if (aOffset < 0 || aOffset >= aBuf.length)
@@ -134,8 +115,7 @@ public class BufferedReader extends Reader
         }
         else
         {
-            // First read characters from the buffer,
-            // then read more characters from the Reader.
+            // First read characters from the buffer, then read more characters from the Reader.
             for (int i = 0; i < bufCharCount; i++)
             {
                 aBuf[aOffset+i] = iBuf[iBufPos++];
@@ -156,9 +136,7 @@ public class BufferedReader extends Reader
         return readCount;
     }
 
-    /**
-     * @see java.io.BufferedReader#readLine()
-     */
+    /** @see java.io.BufferedReader#readLine() */
     public String readLine() throws IOException
     {
         if (!ensureBuf())
@@ -183,9 +161,7 @@ public class BufferedReader extends Reader
         return line.toString();
     }
 
-    /**
-     * @see java.io.BufferedReader#ready()
-     */
+    /** @see java.io.BufferedReader#ready() */
     public boolean ready() throws IOException
     {
         if (iBufPos < iBufAmount)
@@ -199,9 +175,7 @@ public class BufferedReader extends Reader
         return false;
     }
 
-    /**
-     * @see java.io.BufferedReader#skip()
-     */
+    /** @see java.io.BufferedReader#skip() */
     public long skip(long aAmountToSkip) throws IOException
     {
         if (aAmountToSkip < 0)
@@ -219,8 +193,7 @@ public class BufferedReader extends Reader
         }
         else
         {
-            // First skip characters that are available in the buffer,
-            // then skip characters from the Reader.
+            // First skip characters that are available in the buffer, then skip characters from the Reader.
             iBufPos += bufCharCount;
             skipped += bufCharCount;
             if (iReader != null)
@@ -231,12 +204,7 @@ public class BufferedReader extends Reader
         return skipped;
     }
 
-    /**
-     * If current read position in the buffer is end of line,
-     * move position over end of line and return true, otherwise
-     * return false. Also in the end of stream case this method
-     * returns true.
-     */
+    /** If current read position in the buffer is end of line, move position over end of line and return true. */
     private boolean skipEol() throws IOException
     {
         if (!ensureBuf())
@@ -259,12 +227,7 @@ public class BufferedReader extends Reader
         return eolFound;
     }
 
-    /**
-     * Ensures that the buffer has characters to read.
-     *
-     * @return True if the buffer has characters to read,
-     * false if end of stream has been reached.
-     */
+    /** Ensures that the buffer has characters to read. */
     private boolean ensureBuf() throws IOException
     {
         boolean result = true;
@@ -278,12 +241,7 @@ public class BufferedReader extends Reader
         return result;
     }
 
-    /**
-     * Fills the buffer from the Reader and resets the buffer counters.
-     *
-     * @return The number of characters read, or -1 if the end of
-     * stream has been reached.
-     */
+    /** Fills the buffer from the Reader and resets the buffer counters. */
     private int fillBuf() throws IOException
     {
         if (iReader == null)

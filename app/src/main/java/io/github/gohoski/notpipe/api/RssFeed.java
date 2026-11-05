@@ -12,30 +12,14 @@ import io.github.gohoski.notpipe.data.VideoInfo;
 import io.github.gohoski.notpipe.http.HttpClient;
 import io.github.gohoski.notpipe.http.HttpRequest;
 
-/**
- * NewPipe-style channel RSS route: every Invidious instance serves a tiny
- * Atom feed of a channel's latest uploads at /feed/channel/{id}. It is the
- * cheapest always-fresh source for the subscriptions feed — one small
- * document with real publish dates and view counts, no JSON extraction of
- * the heavy channel page.
- *
- * The parser is string-based on purpose (no javax.xml on Android 1.5 and
- * allocation-light scanning for old devices). Java 1.5 compatible.
- */
+/** NewPipe-style channel RSS route: every Invidious instance serves a tiny Atom feed of a channel's latest uploads. */
 public final class RssFeed {
 
     private static final int MAX_ENTRIES = 30;
 
     private RssFeed() {}
 
-    /**
-     * Fetches and parses the latest videos of one channel.
-     *
-     * @param base Invidious instance base URL (http://host[:port])
-     * @param channelId UC id of the channel
-     * @return the parsed videos; null when the route did not deliver a
-     *         usable feed (the caller rotates to another instance)
-     */
+    /** Fetches and parses the latest videos of one channel. */
     public static List<VideoInfo> fetch(String base, String channelId) throws IOException {
         if (base == null || channelId == null) return null;
         String b = base.trim();
@@ -45,8 +29,7 @@ public final class RssFeed {
         return parse(xml, b, channelId);
     }
 
-    /** Parses the Atom payload; null when it does not look like the
-     *  Invidious channel feed (bot-challenge HTML, error XML, ...). */
+    /** Parses the Atom payload; null when it does not look like the Invidious feed (bot challenge, error). */
     static List<VideoInfo> parse(String xml, String base, String channelId) {
         if (xml == null) return null;
         String s = xml.trim();

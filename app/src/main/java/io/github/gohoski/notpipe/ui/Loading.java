@@ -5,10 +5,7 @@ import android.content.Context;
 
 import io.github.gohoski.notpipe.R;
 
-/**
- * Created by Gleb on 24.10.2025.
- * Loading popup
- */
+/** Created by Gleb on 24.10.2025. */
 
 public class Loading extends ProgressDialog {
     public Loading(Context context, int message) {

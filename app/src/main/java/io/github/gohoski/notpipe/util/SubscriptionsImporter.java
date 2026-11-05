@@ -12,25 +12,7 @@ import java.util.regex.Pattern;
 import cc.nnproject.json.JSONArray;
 import cc.nnproject.json.JSONObject;
 
-/**
- * Universal subscriptions import: accepts the Google Takeout CSV
- * ("Channel ID,Channel Url,Channel Title"), the NewPipe CSV export
- * (feed_url,upload_url,channel_id,channel_name), this app's own export,
- * a NewPipe JSON export, or any text listing channel IDs — and returns
- * subscription entries no matter which of those shapes the file has.
- *
- * Robustness, because one single format broke the old import badly:
- *  - charset: BOM detection for UTF-8 / UTF-16LE / UTF-16BE (Windows
- *    Notepad "Unicode" files), strict UTF-8 with ISO-8859-1 fallback;
- *  - separator: comma, semicolon (Excel in Spanish locales!) or tab,
- *    auto-detected per file;
- *  - quoted fields: proper CSV splitting that honors "a,b" quoting;
- *  - one bad row never kills the rest (per-row try/catch);
- *  - when structured parsing yields nothing, a regex scan of the whole
- *    file still finds every channel ID and youtube.com/@handle URL.
- *
- * Java 1.5 (Android 1.5+).
- */
+/** Universal subscriptions import: accepts the Google Takeout CSV ("Channel ID,Channel Url,Channel Title") */
 public final class SubscriptionsImporter {
 
     /** Channel id: "UC" + exactly 22 of [A-Za-z0-9_-]. */
@@ -42,10 +24,7 @@ public final class SubscriptionsImporter {
 
     private SubscriptionsImporter() {}
 
-    /**
-     * Parses raw file bytes into subscription entries {id, name, ""}.
-     * Never returns null; an empty list means nothing was recognized.
-     */
+    /** Parses raw file bytes into subscription entries {id, name, ""}. */
     public static List<String[]> parse(byte[] data) {
         List<String[]> out = new ArrayList<String[]>();
         if (data == null || data.length == 0) return out;
@@ -59,8 +38,7 @@ public final class SubscriptionsImporter {
         } catch (Throwable ignored) {
             // A totally malformed file must still reach the regex scan.
         }
-        // 2. Regex safety net: any channel id / handle URL anywhere in
-        //    the file (covers JSON exports, exotic CSV shapes, ...).
+        // 2. Regex safety net: any channel id / handle URL anywhere in the file (covers JSON exports, exotic CSV shapes, ...).
         try {
             scanIds(text, out, seen);
         } catch (Throwable ignored) {
@@ -68,9 +46,7 @@ public final class SubscriptionsImporter {
         return out;
     }
 
-    // ------------------------------------------------------------------
-    // Decoding
-    // ------------------------------------------------------------------
+    // --- Decoding ---
 
     /** BOM-aware decode: UTF-8 (strict, then ISO-8859-1) and UTF-16 LE/BE. */
     private static String decode(byte[] data) {
@@ -126,14 +102,12 @@ public final class SubscriptionsImporter {
         }
     }
 
-    // ------------------------------------------------------------------
-    // Structured CSV parsing
-    // ------------------------------------------------------------------
+    // --- Structured CSV parsing ---
 
     private static void parseRows(String text, List<String[]> out, HashSet seen) {
         String[] lines = splitLines(text);
-        // Separator detection: count commas / semicolons / tabs over the
-        // first non-empty lines (Excel-Spanish writes ";" separated CSV).
+        // Separator detection: count commas / semicolons / tabs over the first lines
+        // (Excel-Spanish writes ";" separated CSV).
         char sep = detectSeparator(lines);
         if (sep == 0) sep = ',';
         for (int i = 0; i < lines.length; i++) {
@@ -154,8 +128,7 @@ public final class SubscriptionsImporter {
                         id = p;
                     }
                 }
-                // Display name: the last field that is not a URL, not the
-                // id and not a pure number (Takeout col 3, NewPipe col 4).
+                // Display name: the last field that is not a URL, not the id and not a pure number (Takeout col 3, NewPipe col 4).
                 for (int f = fields.size() - 1; f >= 0 && name == null; f--) {
                     String p = ((String) fields.get(f)).trim();
                     if (p.length() == 0) continue;
@@ -263,9 +236,7 @@ public final class SubscriptionsImporter {
         return fields;
     }
 
-    // ------------------------------------------------------------------
-    // Regex safety net (also covers JSON exports)
-    // ------------------------------------------------------------------
+    // --- Regex safety net (also covers JSON exports) ---
 
     private static void scanIds(String text, List<String[]> out, HashSet seen) {
         // Try JSON first: a NewPipe export carries clean name/id pairs.

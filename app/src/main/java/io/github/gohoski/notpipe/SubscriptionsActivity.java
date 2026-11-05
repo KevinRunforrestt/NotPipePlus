@@ -34,12 +34,7 @@ import io.github.gohoski.notpipe.util.ChannelIconResolver;
 import io.github.gohoski.notpipe.util.ImageLoader;
 import io.github.gohoski.notpipe.util.SubscriptionsImporter;
 
-/**
- * Subscriptions manager: the list of subscribed channels with avatars.
- * Tap opens the channel; long-press unsubscribes (with confirmation);
- * the menu imports a Google Takeout / NewPipe export and exports the
- * current list back as CSV on the SD card.
- */
+/** Subscriptions manager: the list of subscribed channels with avatars. */
 public class SubscriptionsActivity extends Activity {
 
     private ListView list;
@@ -127,18 +122,9 @@ public class SubscriptionsActivity extends Activity {
         return super.onOptionsItemSelected(item);
     }
 
-    // ------------------------------------------------------------------
-    // Import: native picker first, integrated browser as fallback
-    // ------------------------------------------------------------------
+    // --- Import ---
 
-    /**
-     * Opens a file picker for the import. Android 2.3 has no system-wide
-     * file browser: if some installed app can serve ACTION_GET_CONTENT the
-     * chooser opens it, otherwise the integrated FilePickerDialog browses
-     * the SD card — any file, any folder (the old hardcoded
-     * /sdcard/notPipe/subscriptions.csv path reported "0 channels" for
-     * everything stored elsewhere).
-     */
+    /** Opens a file picker for the import. */
     private void startImport() {
         Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
         intent.setType("*/*");
@@ -193,8 +179,7 @@ public class SubscriptionsActivity extends Activity {
         new ImportTask().execute(uri.toString());
     }
 
-    /** Reads the picked file, parses (universal formats) and merges,
-     *  off the UI thread. */
+    /** Reads the picked file, parses (universal formats) and merges, off the UI thread. */
     private class ImportTask extends AsyncTask<String, Void, int[]> {
         private String failReason;
 
@@ -255,8 +240,7 @@ public class SubscriptionsActivity extends Activity {
         }
     }
 
-    /** Reads a stream fully, capped: a 2011 device must not OOM on a
-     *  mis-picked 500 MB "file". */
+    /** Reads a stream fully, capped: a 2011 device must not OOM on a mis-picked 500 MB "file". */
     private static byte[] readFully(InputStream in, int cap) throws Exception {
         java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream(16384);
         byte[] chunk = new byte[8192];
@@ -270,8 +254,7 @@ public class SubscriptionsActivity extends Activity {
         return buffer.toByteArray();
     }
 
-    /** Writes the current list to /sdcard/notPipe/subscriptions.csv
-     *  (Google Takeout shape, so it re-imports here and in NewPipe). */
+    /** Writes the current list to /sdcard/notPipe/subscriptions.csv (Google Takeout shape). */
     private void exportSubscriptions() {
         try {
             File dir = new File(android.os.Environment.getExternalStorageDirectory(), "notPipe");
@@ -350,9 +333,7 @@ public class SubscriptionsActivity extends Activity {
             return convertView;
         }
 
-        /** The stored avatar URL rotted (its instance died): re-resolve
-         *  the icon, persist the fresh URL and rebind. One attempt per
-         *  channel per session. */
+        /** The stored avatar URL rotted (its instance died): re-resolve the icon, persist the fresh URL and rebind. */
         private void healAvatar(final String channelId) {
             if (channelId == null || channelId.length() == 0) return;
             if (healedChannels.contains(channelId)) return;

@@ -13,11 +13,7 @@ import cc.nnproject.json.JSONArray;
 import cc.nnproject.json.JSONException;
 import cc.nnproject.json.JSONObject;
 
-/**
- * Local playlists store: one small JSON file of {name, videos[]} entries.
- * A video is stored as its id only; the Playlists screen resolves titles
- * and thumbnails through the API on demand. Java 1.5 compatible.
- */
+/** Local playlists store: one small JSON file of {name, videos[]} entries. */
 public final class Playlists {
 
     private static final String FILE = "playlists.json";
@@ -119,9 +115,7 @@ public final class Playlists {
         return null;
     }
 
-    // ------------------------------------------------------------------
-    // Storage
-    // ------------------------------------------------------------------
+    // --- Storage ---
 
     private static void loadIfNeeded() {
         if (playlists != null) return;

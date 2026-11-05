@@ -6,10 +6,7 @@ import android.widget.VideoView;
 
 import io.github.gohoski.notpipe.NotPipe;
 
-/**
- * Created by Gleb on 18.01.2026.
- * VideoView that can be forced 16:9 or fullscreen with actual video aspect ratio.
- */
+/** Created by Gleb on 18.01.2026. */
 public class AspectRatioVideoView extends VideoView {
 
     private boolean fullscreen = false;

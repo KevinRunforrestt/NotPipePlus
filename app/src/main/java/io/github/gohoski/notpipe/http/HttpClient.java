@@ -13,29 +13,26 @@ import io.github.gohoski.notpipe.BuildConfig;
 import io.github.gohoski.notpipe.NotPipe;
 import io.github.gohoski.notpipe.Utils;
 
-/**
- * Minimal HTTP client for Http(s)URLConnection with timeouts, a shared
- * User-Agent and error bodies surfaced as HttpException.
- */
+/** Minimal HTTP client for Http(s)URLConnection with timeouts, a shared User-Agent and error bodies surfaced. */
 public class HttpClient {
     public static final String USER_AGENT = "notPipe/" + BuildConfig.VERSION_NAME + " (https://github.com/gohoski/notPipe)";
-    private static final int TIMEOUT = 20000;
+    private static final int TIMEOUT = 15000;
     public static final int VIDEO_TIMEOUT = 60000;
-    public static final int CONVERSION_TIMEOUT = 300000;
+    public static final int CONVERSION_TIMEOUT = 90000;
 
     public interface DownloadProgressListener {
-        /**
-         * Invoked to publish downloaded bytes progression.
-         * @return true to continue downloading, false to abort and clean up.
-         */
+        /** Invoked to publish downloaded bytes progression. */
         boolean onProgress(long bytesDownloaded, long totalBytes);
     }
 
-    /** Executes an HTTP request with a custom timeout.
-     *  @return InputStream of a 2xx response; HttpException carries the
-     *          status line and the error body otherwise. */
+    /** Executes an HTTP request with a custom timeout. */
     @SuppressWarnings("ConstantConditions")
     public static InputStream execute(HttpRequest request, int timeout) throws IOException {
+        return execute(request, timeout, 0);
+    }
+
+    @SuppressWarnings("ConstantConditions")
+    private static InputStream execute(HttpRequest request, int timeout, int retryCount) throws IOException {
         Utils.waitForConnection(NotPipe.getAppContext());
         HttpURLConnection connection = null;
         try {
@@ -43,22 +40,56 @@ public class HttpClient {
             String urlStr = url.toString().toLowerCase();
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod(request.getMethod());
-            connection.setConnectTimeout(9999);
+            // A caller passing a tight timeout (the feed's Shorts lookups) cannot afford a 10 s connect phase on top.
+            int connectTimeout = timeout > 0 && timeout < 10000 ? timeout : 10000;
+            connection.setConnectTimeout(connectTimeout);
             connection.setReadTimeout(timeout);
 
             connection.setRequestProperty("User-Agent", USER_AGENT);
             for (Map.Entry<String, String> entry : request.getHeaders().entrySet()) {
                 connection.setRequestProperty(entry.getKey(), entry.getValue());
             }
-            // Ask for gzip (API 3-era HttpURLConnection does not add it
-            // by itself): JSON shrinks several-fold, which is most of the
-            // wait on slow links. Servers that cannot compress simply
-            // ignore the header and the body stays plain.
+            // Ask for gzip (API 3-era HttpURLConnection does not add it by itself): JSON shrinks several-fold.
             if (!request.getHeaders().containsKey("Accept-Encoding")) {
                 connection.setRequestProperty("Accept-Encoding", "gzip");
             }
 
-            int status = connection.getResponseCode();
+            // Write POST/PUT body if present
+            if (request.getBody() != null && request.getBody().length() > 0) {
+                connection.setDoOutput(true);
+                if (!request.getHeaders().containsKey("Content-Type"))
+                    connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+                byte[] postData = request.getBody().getBytes("UTF-8");
+                connection.setFixedLengthStreamingMode(postData.length);
+                java.io.OutputStream os = connection.getOutputStream();
+                os.write(postData);
+                os.flush();
+                os.close();
+            }
+
+            int status;
+            try {
+                status = connection.getResponseCode();
+            } catch (IOException e) {
+                String msg = e.getMessage();
+                if (msg != null && msg.toLowerCase().contains("authentication challenge")) {
+                    String errorBody = null;
+                    try { errorBody = streamToString(connection.getErrorStream()); } catch (Exception ignored) {}
+                    connection.disconnect();
+                    throw new HttpException(401, "HTTP 401 " + url + " (authentication challenge is null)", errorBody);
+                }
+                throw e;
+            }
+
+            // If the socket was dropped by the server or connection pool, retry once with full request data
+            if (status == -1) {
+                connection.disconnect();
+                if (retryCount < 1) {
+                    return execute(request, timeout, retryCount + 1);
+                }
+                throw new HttpException(-1, "HTTP -1 (Connection dropped or invalid response) " + url, null);
+            }
+
             if (status >= 200 && status < 300) {
                 String contentType = connection.getContentType();
                 if (urlStr.contains("&codec=") && contentType != null && contentType.startsWith("application/json")) {
@@ -66,8 +97,7 @@ public class HttpClient {
                     throw new VideoTooLongException("Video is too long!");
                 }
                 InputStream body = connection.getInputStream();
-                // Transparent gzip: wrap only when the server actually
-                // compressed the body, plain responses pass through as-is.
+                // Transparent gzip: wrap only when the server actually compressed the body, plain responses pass through as-is.
                 if (isGzipEncoded(connection)) {
                     body = new GZIPInputStream(body);
                 }
@@ -89,23 +119,13 @@ public class HttpClient {
         }
     }
 
-    /**
-     * Executes the API request and returns the response body as a String
-     *
-     * @param request The API request to execute
-     * @return The response body as a String
-     * @throws HttpException If there's an error executing the request
-     */
+    /** Executes the API request and returns the response body as a String. */
     @SuppressWarnings("ConstantConditions")
     public static String executeToString(HttpRequest request) throws IOException {
         return executeToString(request, TIMEOUT);
     }
 
-    /**
-     * Executes the API request with custom timeout and returns the response
-     * body as a String. A 4xx/5xx with a structured JSON error payload is
-     * returned as a normal String so the API classes can read "error".
-     */
+    /** Executes the API request with custom timeout and returns the response body as a String. */
     @SuppressWarnings("ConstantConditions")
     public static String executeToString(HttpRequest request, int timeout) throws IOException {
         InputStream in = null;
@@ -113,8 +133,7 @@ public class HttpClient {
             in = execute(request, timeout);
             return streamToString(in);
         } catch (HttpException e) {
-            // A structured JSON error payload becomes the normal body so
-            // the API classes can extract "error" / "message".
+            // A structured JSON error payload becomes the normal body so the API classes can extract "error" / "message".
             String body = e.getResponseBody();
             if (body != null) body = body.trim();
             if (body != null && body.startsWith("{") && body.endsWith("}")) {
@@ -128,11 +147,7 @@ public class HttpClient {
         }
     }
 
-    /**
-     * GETs a URL and returns the redirect target from the Location header
-     * (yt2009's video endpoints work this way). 404 means the quality is
-     * not available on that instance.
-     */
+    /** GETs a URL and returns the redirect target from the Location header (yt2009's video endpoints work this way). */
     public static String getRedirectUrl(String baseUrl, String urlString, int timeout) throws IOException {
         Utils.waitForConnection(NotPipe.getAppContext());
         HttpURLConnection connection = null;
@@ -144,7 +159,16 @@ public class HttpClient {
             connection.setReadTimeout(timeout);
             connection.setRequestProperty("User-Agent", USER_AGENT);
             connection.setInstanceFollowRedirects(false);
-            int status = connection.getResponseCode();
+            int status;
+            try {
+                status = connection.getResponseCode();
+            } catch (IOException e) {
+                String msg = e.getMessage();
+                if (msg != null && msg.toLowerCase().indexOf("authentication challenge") != -1) {
+                    throw new HttpException(401, "HTTP 401 " + url + " (authentication challenge is null)", null);
+                }
+                throw e;
+            }
             if (status == 404) {
                 throw new FileNotFoundException("Video quality not available (HTTP 404)");
             }
@@ -166,9 +190,7 @@ public class HttpClient {
         return encoding != null && encoding.toLowerCase().indexOf("gzip") != -1;
     }
 
-    /**
-     * Helper method to convert InputStream to String
-     */
+    /** Helper method to convert InputStream to String. */
     private static String streamToString(InputStream is) throws IOException {
         if (is == null) return "";
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
@@ -182,18 +204,19 @@ public class HttpClient {
         return new String(buffer.toByteArray(), "UTF-8");
     }
 
-    /**
-     * Downloads a file to the given path, reporting progress. If the
-     * download fails, the partially downloaded file is deleted.
-     */
+    /** Downloads a file to the given path, reporting progress. */
     public static void downloadToFile(String urlString, String outputPath, int timeout, DownloadProgressListener listener) throws IOException {
         HttpRequest request = new HttpRequest(urlString, "");
         InputStream in = null;
+        java.io.BufferedInputStream bin = null;
         java.io.FileOutputStream out = null;
         java.io.File file = new java.io.File(outputPath);
         boolean success = false;
+        // 32 KB buffer matches standard FAT32 cluster sizes on SD cards, reducing I/O context switches
+        final int BUFFER_SIZE = 32768;
         try {
             in = execute(request, timeout);
+            bin = new java.io.BufferedInputStream(in, BUFFER_SIZE);
             // Content length may be -1 for chunked transfers
             long totalBytes = -1;
             if (in instanceof ConnectionInputStream) {
@@ -204,10 +227,10 @@ public class HttpClient {
                 parent.mkdirs();
             }
             out = new java.io.FileOutputStream(file);
-            byte[] buffer = new byte[8192];
+            byte[] buffer = new byte[BUFFER_SIZE];
             int bytesRead;
             long bytesDownloaded = 0;
-            while ((bytesRead = in.read(buffer)) != -1) {
+            while ((bytesRead = bin.read(buffer, 0, BUFFER_SIZE)) != -1) {
                 out.write(buffer, 0, bytesRead);
                 bytesDownloaded += bytesRead;
                 if (listener != null) {
@@ -217,13 +240,22 @@ public class HttpClient {
                 }
             }
             out.flush();
+            // Sync file descriptors to ensure data is committed to SD card before returning
+            try {
+                out.getFD().sync();
+            } catch (Exception ignored) {}
             success = true;
         } finally {
-            if (in != null)
+            if (bin != null) {
+                try { bin.close(); } catch (IOException ignored) {}
+            } else if (in != null) {
                 try { in.close(); } catch (IOException ignored) {}
+            }
             if (out != null)
                 try { out.close(); } catch (IOException ignored) {}
-            if (!success && file.exists()) file.delete();
+            if (!success && file.exists()) {
+                file.delete();
+            }
         }
     }
 }

@@ -4,9 +4,7 @@ import io.github.gohoski.notpipe.api.Metadata;
 import io.github.gohoski.notpipe.api.VideoStream;
 import io.github.gohoski.notpipe.data.Video;
 
-/**
- * Created by Gleb on 08.06.2026.
- */
+/** Created by Gleb on 08.06.2026. */
 
 class VideoCache {
     private static String cachedVideoId;

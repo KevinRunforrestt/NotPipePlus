@@ -11,19 +11,7 @@ import android.widget.TextView;
 
 import io.github.gohoski.notpipe.R;
 
-/**
- * Pull-down-to-refresh container for the subscriptions feed, built the way
- * SwipeRefreshLayout works but on API-3 primitives (no translations, no
- * animation framework): a status header expands between the top edge and
- * the target list while the finger drags, snaps back when released below
- * the threshold and fires the refresh above it.
- *
- * The gesture only takes over clearly vertical drags (dy must lead dx by
- * the touch slop, like SwipeRefreshLayout): the wide landscape grid made
- * every slightly-downward swipe — including diagonal scrolls — trigger the
- * pull, which is why the gesture felt broken in horizontal. It works the
- * same in both orientations now.
- */
+/** Pull-down-to-refresh container built the way SwipeRefreshLayout works, but on API-3 primitives. */
 public class PullToRefreshLayout extends FrameLayout {
 
     /** Listener notified when the pull passes the threshold and releases. */
@@ -68,9 +56,7 @@ public class PullToRefreshLayout extends FrameLayout {
         addView(header, new LayoutParams(LayoutParams.FILL_PARENT, 0));
     }
 
-    /** XML children are inflated after init(): reorder so the header (added
-     *  first in init) draws ON TOP of the target list — the indicator grows
-     *  over the first rows while the finger drags. */
+    /** XML children are inflated after init(): reorder so the header (added first in init) draws ON TOP of the target. */
     @Override
     protected void onFinishInflate() {
         super.onFinishInflate();

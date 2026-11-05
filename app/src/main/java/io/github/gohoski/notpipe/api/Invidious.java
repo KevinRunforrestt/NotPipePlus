@@ -23,10 +23,7 @@ import io.github.gohoski.notpipe.http.HttpClient;
 import io.github.gohoski.notpipe.http.HttpRequest;
 import io.github.gohoski.notpipe.Utils;
 
-/**
- * Created by Gleb on 19.01.2026.
- * Implementation of Invidious API (https://docs.invidious.io/api/)
- */
+/** Created by Gleb on 19.01.2026. */
 
 class Invidious implements Metadata, VideoStream {
     private String baseUrl;
@@ -52,12 +49,7 @@ class Invidious implements Metadata, VideoStream {
         return Utils.parseUrl(baseUrl + "/ggpht", j.getArray("authorThumbnails").getObject(AUTHOR_THUMB).getString("url"));
     }
 
-    /**
-     * Popular feed with layered endpoints: 1. the classic hype playlists;
-     * 2. /api/v1/trending?region=US; 3. /api/v1/popular (companion-backed
-     * instances). An empty page throws so the instance fallback chain can
-     * try the next instance; one malformed item never kills the response.
-     */
+    /** Popular feed with layered endpoints: 1. */
     @Override
     public List<VideoInfo> getPopularVideos() throws IOException {
         List<VideoInfo> videos = new ArrayList<VideoInfo>();
@@ -73,7 +65,7 @@ class Invidious implements Metadata, VideoStream {
                     if ("video".equals(j.getString("type")))
                         videos.add(new VideoInfo(j.getString("videoId"), j.getString("title"),
                                 Utils.parseUrl(baseUrl, thumbUrl(j)),
-                                j.getString("author"), "", j.getString("authorId"),
+                                j.getString("author"), null, j.getString("authorId"),
                                 Utils.formatDuration(j.getInt("lengthSeconds")), -1, null));
                 } catch (JSONException ignored) {
                 }
@@ -94,7 +86,7 @@ class Invidious implements Metadata, VideoStream {
                     if ("video".equals(j.getString("type")))
                         videos.add(new VideoInfo(j.getString("videoId"), j.getString("title"),
                                 Utils.parseUrl(baseUrl, thumbUrl(j)),
-                                j.getString("author"), "", j.getString("authorId"),
+                                j.getString("author"), null, j.getString("authorId"),
                                 Utils.formatDuration(j.getInt("lengthSeconds")),
                                 j.getLong("viewCount"), null));
                 } catch (JSONException ignored) {
@@ -114,7 +106,7 @@ class Invidious implements Metadata, VideoStream {
                     JSONObject j = arr.getObject(i);
                     videos.add(new VideoInfo(j.getString("videoId"), j.getString("title"),
                             Utils.parseUrl(baseUrl, thumbUrl(j)),
-                            j.getString("author"), "", j.getString("authorId"),
+                            j.getString("author"), null, j.getString("authorId"),
                             Utils.formatDuration(j.getInt("lengthSeconds")), -1, null));
                 } catch (JSONException ignored) {
                 }
@@ -123,8 +115,7 @@ class Invidious implements Metadata, VideoStream {
             e.printStackTrace();
         }
         if (videos.isEmpty()) {
-            // An IOException makes the chain try the next instance
-            // ("content unavailable" would stop it dead).
+            // An IOException makes the chain try the next instance ("content unavailable" would stop it dead).
             throw new IOException("Popular feed unavailable on " + getHost());
         }
         return videos;
@@ -203,7 +194,7 @@ class Invidious implements Metadata, VideoStream {
         List<VideoInfo> related = new ArrayList<VideoInfo>();
         try {
             String error = json.getString("error");
-            if (!(error.contains("bot") || error.contains("protect") || error.contains("page") || error.contains("Companion")))
+            if (!Utils.isYouTubeBlockingError(error))
                 throw new ContentUnavailableException(error);
         } catch (JSONException ignored) {}
         JSONArray arr = json.getArray("recommendedVideos");
@@ -218,7 +209,7 @@ class Invidious implements Metadata, VideoStream {
             }
             related.add(new VideoInfo(j.getString("videoId"), j.getString("title"),
                     videoThumbUrl(j),
-                    j.getString("author"), "", j.getString("authorId"), Utils.formatDuration(j.getInt("lengthSeconds")),
+                    j.getString("author"), null, j.getString("authorId"), Utils.formatDuration(j.getInt("lengthSeconds")),
                     Utils.parseTextCount(j.getString("viewCountText")), published));
         }
         return new Video(id, json.getString("title"),
@@ -242,23 +233,15 @@ class Invidious implements Metadata, VideoStream {
         return getCommentsPage(id).comments;
     }
 
-    /**
-     * Paginated comments: the first page carries the top-level
-     * continuation token of the next one (Invidious schema). Pinned
-     * comments ("isPinned" on modern builds, "pinned" on older ones)
-     * arrive first and are badged like NewPipe does.
-     */
+    /** Paginated comments: the first page carries the top-level continuation token of the next one (Invidious schema). */
     @Override public CommentsPage getCommentsPage(String id) throws IOException {
         HttpRequest req = new HttpRequest(baseUrl, "/api/v1/comments/"+id);
         JSONObject json = JSON.getObject(HttpClient.executeToString(req));
-        // Propagate structured errors instead of swallowing them: several
-        // Invidious instances fail to extract comments for specific videos
-        // while other frontends still can.
+        // Propagate structured errors instead of swallowing them: several Invidious instances fail to extract comments.
         try {
             String error = json.getString("error");
             if (error != null && error.length() > 0) {
-                // "Comments not found." (videos without/disabled comments)
-                // is definitive: no instance has them.
+                // "Comments not found." (videos without/disabled comments) is definitive: no instance has them.
                 String lower = error.toLowerCase();
                 if (lower.contains("not found") || lower.contains("disabled")
                         || lower.contains("unavailable")) {
@@ -304,10 +287,7 @@ class Invidious implements Metadata, VideoStream {
         return comments;
     }
 
-    /**
-     * Parses a further comments page (?continuation=...); same schema as
-     * the first page. Called by Manager when the UI scrolls to the end.
-     */
+    /** Parses a further comments page (?continuation=...); same schema as the first page. */
     CommentsPage parseMoreComments(String body, String videoId) throws IOException {
         JSONObject root = JSON.getObject(body);
         try {
@@ -330,12 +310,7 @@ class Invidious implements Metadata, VideoStream {
         return new CommentsPage(rows, moreUrl, Comment.BACKEND_INVIDIOUS);
     }
 
-    /**
-     * One comment row of /api/v1/comments. Reply metadata comes in two
-     * flavors depending on the Invidious build: modern {replyCount,
-     * continuation} (fetched via ?continuation=... on expand) or a legacy
-     * inline replies array (no network needed).
-     */
+    /** One comment row of /api/v1/comments. */
     private Comment parseCommentRow(JSONObject j, String videoId) throws JSONException {
         long published = j.getLong("published");
         Comment c = new Comment(j.getString("author"), commentAvatarUrl(j),
@@ -387,10 +362,7 @@ class Invidious implements Metadata, VideoStream {
         return c;
     }
 
-    /**
-     * Parses one replies page (?continuation=...); the rows reuse the same
-     * schema as the top-level comments. Called by Manager on expand.
-     */
+    /** Parses one replies page (?continuation=...); the rows reuse the same schema as the top-level comments. */
     List<Comment> parseReplies(String json) throws IOException {
         JSONObject root = JSON.getObject(json);
         try {
@@ -434,7 +406,7 @@ class Invidious implements Metadata, VideoStream {
             }
             related.add(new VideoInfo(j.getString("videoId"), j.getString("title"),
                     videoThumbUrl(j),
-                    j.getString("author"), "", j.getString("authorId"), Utils.formatDuration(j.getInt("lengthSeconds")),
+                    j.getString("author"), null, j.getString("authorId"), Utils.formatDuration(j.getInt("lengthSeconds")),
                     Utils.parseTextCount(j.getString("viewCountText")), published));
         }
         return related;
@@ -473,8 +445,13 @@ class Invidious implements Metadata, VideoStream {
 
     @Override
     public String getChannelIcon(String id) throws IOException {
-        HttpRequest req = new HttpRequest(baseUrl, "/api/v1/channels/"+id);
-        return Utils.parseUrl(baseUrl + "/ggpht", JSON.getObject(HttpClient.executeToString(req)).getArray("authorThumbnails").getObject(AUTHOR_THUMB).getString("url"));
+        if (id.startsWith("UC")) {
+            HttpRequest req = new HttpRequest(baseUrl, "/api/v1/channels/" + id);
+            return Utils.parseUrl(baseUrl + "/ggpht", JSON.getObject(HttpClient.executeToString(req)).getArray("authorThumbnails").getObject(AUTHOR_THUMB).getString("url"));
+        } else {
+            HttpRequest req = new HttpRequest.Builder(baseUrl, "/api/v1/search").addParam("q", id).addParam("type", "channel").build();
+            return Utils.parseUrl(baseUrl + "/ggpht", JSON.getArray(HttpClient.executeToString(req)).getObject(0).getArray("authorThumbnails").getObject(AUTHOR_THUMB).getString("url"));
+        }
     }
 
     @Override
@@ -482,13 +459,24 @@ class Invidious implements Metadata, VideoStream {
         HttpRequest req = new HttpRequest.Builder(baseUrl, "/api/v1/channels/" + id + "/videos")
                 .addParam("sort_by", sort == 1 ? "popular" : "newest").build();
         JSONObject json = JSON.getObject(HttpClient.executeToString(req));
+        try {
+            String error = json.getString("error");
+            if (error != null && error.length() > 0 && !Utils.isYouTubeBlockingError(error))
+                throw new ContentUnavailableException(error);
+        } catch (JSONException ignored) {}
         List<VideoInfo> videos = parseChannelVideos(json.getArray("videos"), id);
         if (videos.isEmpty()) {
             if (sort == 1) // At this stage, we can't get popular channel videos
                 return videos;
             // If the instance can't parse videos from the channel page, we'll use channel playlist instead
             req = new HttpRequest(baseUrl, "/api/v1/playlists/UU" + id.substring(2));
-            JSONArray arr = JSON.getObject(HttpClient.executeToString(req)).getArray("videos");
+            JSONObject pjson = JSON.getObject(HttpClient.executeToString(req));
+            try {
+                String error = pjson.getString("error");
+                if (error != null && error.length() > 0 && !Utils.isYouTubeBlockingError(error))
+                    throw new ContentUnavailableException(error);
+            } catch (JSONException ignored) {}
+            JSONArray arr = pjson.getArray("videos");
             for (int i = 0; i < arr.size(); i++) {
                 JSONObject j = arr.getObject(i);
                 videos.add(new VideoInfo(j.getString("videoId"), j.getString("title"),
@@ -499,11 +487,7 @@ class Invidious implements Metadata, VideoStream {
         return videos;
     }
 
-    /**
-     * Public playlists of a channel. Invidious serves them at
-     * /api/v1/channels/{id}/playlists with title/playlistId/
-     * playlistThumbnail/videoCount per item.
-     */
+    /** Public playlists of a channel. */
     @Override
     public List<ChannelPlaylist> getChannelPlaylists(String id) throws IOException {
         HttpRequest req = new HttpRequest(baseUrl, "/api/v1/channels/" + id + "/playlists");
@@ -530,12 +514,7 @@ class Invidious implements Metadata, VideoStream {
         return playlists;
     }
 
-    /**
-     * Rebuilds a playlist thumbnail as a mqdefault URL served through the
-     * instance's /vi/ image proxy (same path used by getThumbnail), so the
-     * app never talks to Google servers directly. Falls back to routing the
-     * original absolute URL through the instance.
-     */
+    /** Rebuilds a playlist thumbnail as a mqdefault URL served through the instance's /vi/ image proxy. */
     private String playlistThumb(String raw) {
         if (raw == null || raw.length() == 0) return "";
         int i = raw.indexOf("/vi/");
@@ -549,8 +528,7 @@ class Invidious implements Metadata, VideoStream {
         return Utils.parseUrl(baseUrl, raw);
     }
 
-    /** Videos of one playlist (PL...). Playlist listings carry no view
-     *  counts or upload dates, so those are simply marked unknown. */
+    /** Videos of one playlist (PL...). */
     @Override
     public List<VideoInfo> getPlaylistVideos(String playlistId) throws IOException {
         HttpRequest req = new HttpRequest(baseUrl, "/api/v1/playlists/" + playlistId);
@@ -584,12 +562,7 @@ class Invidious implements Metadata, VideoStream {
         return videos;
     }
 
-    /**
-     * Caption tracks via /api/v1/captions/{id}. Invidious serves WebVTT
-     * through the per-track url (relative to the instance), so subtitles
-     * work even on devices where the player cannot render anything but
-     * raw video.
-     */
+    /** Caption tracks via /api/v1/captions/{id}. */
     @Override
     public List<SubtitleTrack> getSubtitles(String videoId) throws IOException {
         HttpRequest req = new HttpRequest(baseUrl, "/api/v1/captions/" + videoId);
@@ -615,14 +588,9 @@ class Invidious implements Metadata, VideoStream {
         return tracks;
     }
 
-    /**
-     * Avatar URL of one comment row, routed through the /ggpht image proxy.
-     * Newer builds serve a single absolute "authorThumbnail" string (the
-     * plural array is gone); older builds still send the array.
-     */
+    /** Avatar URL of one comment row, routed through the /ggpht image proxy. */
     private String commentAvatarUrl(JSONObject j) {
-        // New schema: single string, usually https://yt3.ggpht.com/... or
-        // https://yt3.googleusercontent.com/...
+        // New schema: single string, usually https://yt3.ggpht.com/... or https://yt3.googleusercontent.com/...
         String t = j.getNullableString("authorThumbnail");
         if (t != null && t.length() > 0) {
             return Utils.parseUrl(baseUrl + "/ggpht", t);

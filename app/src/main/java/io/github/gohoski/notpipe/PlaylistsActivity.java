@@ -22,12 +22,7 @@ import java.util.List;
 
 import io.github.gohoski.notpipe.util.ImageLoader;
 
-/**
- * Local playlists manager: lists the playlists created on this device.
- * Tap a playlist to open its videos (VideoActivity-style list); the menu
- * creates a new one; long-press deletes. Videos are added from any video
- * page.
- */
+/** Local playlists manager: lists the playlists created on this device. */
 public class PlaylistsActivity extends Activity {
 
     private ListView list;

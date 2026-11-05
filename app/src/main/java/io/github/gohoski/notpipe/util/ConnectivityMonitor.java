@@ -14,12 +14,7 @@ import java.util.List;
 import io.github.gohoski.notpipe.NotPipe;
 import io.github.gohoski.notpipe.Utils;
 
-/**
- * Watches connectivity and tells the visible activity when the internet
- * comes back, so a screen left on an error/spinner can reload itself.
- * CONNECTIVITY_ACTION is the only reliable signal on Android 1.5-2.3; the
- * receiver lives in the Application scope, listeners attach while resumed.
- */
+/** Watches connectivity and tells the visible activity when the internet comes back. */
 public final class ConnectivityMonitor {
 
     /** Called on the main thread when the network was down and is back. */

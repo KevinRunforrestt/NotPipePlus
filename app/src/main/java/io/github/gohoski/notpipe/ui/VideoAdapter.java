@@ -16,15 +16,18 @@ import io.github.gohoski.notpipe.Utils;
 import io.github.gohoski.notpipe.data.VideoInfo;
 import io.github.gohoski.notpipe.util.ImageLoader;
 
-/**
- * Adapter for video lists with lazy loading support: images load only
- * for rows explicitly marked as visible.
- */
-public class VideoAdapter extends ArrayAdapter<VideoInfo> {
+/** Adapter for video lists with lazy loading support: images load only for rows explicitly marked as visible. */
+public class VideoAdapter extends ArrayAdapter<VideoInfo> implements ChannelIconRefreshable {
     private Context context;
     private int layoutResource;
     private boolean isInChannelActivity;
     private ChannelIconListener iconListener;
+    private io.github.gohoski.notpipe.util.ChannelIconResolver.OnIconResolvedListener iconResolveListener;
+
+    /** Layout flags: which row style getView is rendering. */
+    private boolean isFullLayout;
+    private boolean isCompactLayout;
+    private boolean isNoIconLayout;
 
     /** Avatar views are small: decode at a fraction of the source size. */
     private static final int AVATAR_MAX_DIM = 80;
@@ -35,10 +38,7 @@ public class VideoAdapter extends ArrayAdapter<VideoInfo> {
     }
 
     public VideoAdapter(Context context, int resource, List<VideoInfo> objects) {
-        super(context, resource, objects);
-        this.context = context;
-        this.layoutResource = resource;
-        this.isInChannelActivity = false;
+        this(context, resource, objects, false);
     }
 
     public VideoAdapter(Context context, int resource, List<VideoInfo> objects, boolean isInChannelActivity) {
@@ -46,10 +46,18 @@ public class VideoAdapter extends ArrayAdapter<VideoInfo> {
         this.context = context;
         this.layoutResource = resource;
         this.isInChannelActivity = isInChannelActivity;
+        this.isFullLayout = resource == R.layout.item_video;
+        this.isCompactLayout = resource == R.layout.item_video_compact;
+        this.isNoIconLayout = resource == R.layout.item_video_noicon;
     }
 
     public void setChannelIconListener(ChannelIconListener listener) {
         this.iconListener = listener;
+    }
+
+    /** Shared resolver listener: rows refresh once a background icon resolution completes (notPipe 0.4 pattern). */
+    public void setChannelIconResolveListener(io.github.gohoski.notpipe.util.ChannelIconResolver.OnIconResolvedListener listener) {
+        this.iconResolveListener = listener;
     }
 
     @Override
@@ -75,35 +83,10 @@ public class VideoAdapter extends ArrayAdapter<VideoInfo> {
             holder = (ViewHolder) row.getTag();
         }
 
-        if (layoutResource == R.layout.item_video_compact && (video.views <= 0 || video.publishedAt == null)) {
-            holder.videoTitle.setMaxLines(3);
-        } else {
-            holder.videoTitle.setMaxLines(2);
-        }
+        holder.videoTitle.setMaxLines((isCompactLayout || isNoIconLayout) && (video.views <= 0 || video.publishedAt == null) ? 3 : 2);
         holder.videoTitle.setText(video.title);
 
-        if (video.views > 0) {
-            String viewsText = Utils.formatNumber(context, video.views);
-            if (layoutResource == R.layout.item_video) {
-                holder.channelTitle.setText(video.channel + " · " + context.getString(R.string.views, viewsText) + (video.publishedAt == null ? "" : " · " + Utils.formatTimeAgo(context, video.publishedAt)));
-            } else if (layoutResource == R.layout.item_video_compact) {
-                if (isInChannelActivity) {
-                    holder.channelTitle.setText(context.getString(R.string.views, viewsText) + (video.publishedAt == null ? "" : "\n" + Utils.formatTimeAgo(context, video.publishedAt)));
-                } else {
-                    holder.channelTitle.setText(video.channel + "\n" + viewsText + (video.publishedAt == null ? "" : " · " + Utils.formatTimeAgo(context, video.publishedAt)));
-                }
-            } else {
-                holder.channelTitle.setText(video.channel);
-            }
-        } else {
-            if (layoutResource == R.layout.item_video) {
-                holder.channelTitle.setText(video.channel);
-            } else if (layoutResource == R.layout.item_video_compact) {
-                holder.channelTitle.setText(isInChannelActivity ? "" : video.channel);
-            } else {
-                holder.channelTitle.setText(video.channel);
-            }
-        }
+        holder.channelTitle.setText(buildMetaText(video));
 
         if (holder.duration != null) {
             if (video.duration != null && video.duration.length() > 0) {
@@ -116,6 +99,12 @@ public class VideoAdapter extends ArrayAdapter<VideoInfo> {
 
         holder.video = video;
         holder.imagesLoaded = false;
+        // Cancel any load a recycled view still has in flight and re-tag the views, so a late decode can never land in the wrong row.
+        ImageLoader.cancelLoad(holder.videoThumb);
+        holder.videoThumb.setTag(video.thumbnail);
+        if (holder.channelThumb != null) {
+            ImageLoader.cancelLoad(holder.channelThumb);
+        }
         holder.videoThumb.setImageBitmap(null);
         if (holder.channelThumb != null) {
             holder.channelThumb.setImageBitmap(null);
@@ -131,6 +120,38 @@ public class VideoAdapter extends ArrayAdapter<VideoInfo> {
         return row;
     }
 
+    /** Builds the secondary text of a row: channel name, view count and publish date. */
+    private String buildMetaText(VideoInfo video) {
+        String ago = video.publishedAt == null ? null : Utils.formatTimeAgo(context, video.publishedAt);
+
+        if (isCompactLayout || isNoIconLayout) {
+            String views = video.views > 0 ? Utils.formatNumber(context, video.views) : null;
+            if (isInChannelActivity) {
+                return join("\n", views == null ? null : context.getString(R.string.views, views), ago);
+            }
+            String meta = join(" · ", views, ago);
+            return meta.length() > 0 ? video.channel + "\n" + meta : video.channel;
+        }
+
+        if (isFullLayout) {
+            String views = video.views > 0 ? context.getString(R.string.views, Utils.formatNumber(context, video.views)) : null;
+            return join(" · ", video.channel, views, ago);
+        }
+
+        return video.channel;
+    }
+
+    /** Concatenates non-empty parts, inserting the separator between them. */
+    private static String join(String separator, String... parts) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < parts.length; i++) {
+            if (parts[i] == null || parts[i].length() == 0) continue;
+            if (sb.length() > 0) sb.append(separator);
+            sb.append(parts[i]);
+        }
+        return sb.toString();
+    }
+
     /** Called by VideoActivity when this row becomes visible. */
     public void loadImagesForView(View row) {
         if (row.getTag() instanceof ViewHolder) {
@@ -143,8 +164,7 @@ public class VideoAdapter extends ArrayAdapter<VideoInfo> {
         }
     }
 
-    /** Re-checks and reloads the channel icon of a row after a fallback
-     *  URL was resolved. */
+    /** Re-checks and reloads the channel icon of a row after a fallback URL was resolved. */
     public void updateChannelIconForView(View row, String resolvedChannelId) {
         if (row != null && row.getTag() instanceof ViewHolder) {
             ViewHolder holder = (ViewHolder) row.getTag();
@@ -157,6 +177,13 @@ public class VideoAdapter extends ArrayAdapter<VideoInfo> {
     /** Centralized channel icon loading with the fallback logic. */
     private void loadChannelIcon(final ViewHolder holder) {
         if (holder.channelThumb == null || holder.video == null) return;
+        // notPipe 0.4 path: one shared resolver call that prefers the remembered URL, decodes at avatar size and falls back by ID.
+        if (iconResolveListener != null) {
+            io.github.gohoski.notpipe.util.ChannelIconResolver.loadInto(
+                    holder.channelThumb, holder.video.channelId,
+                    holder.video.channelThumbnail, iconResolveListener);
+            return;
+        }
         String urlToLoad = holder.video.channelThumbnail;
         if (iconListener != null && holder.video.channelId != null && holder.video.channelId.length() > 0) {
             String resolved = iconListener.getResolvedIcon(holder.video.channelId);
@@ -175,9 +202,7 @@ public class VideoAdapter extends ArrayAdapter<VideoInfo> {
                 @Override
                 public void onFail() {
                     if (iconListener != null && holder.video.channelId != null && holder.video.channelId.length() > 0) {
-                        // getResolvedIcon returns null once a parked failure
-                        // cooled down, so this retries after the cooldown
-                        // instead of giving up for the whole session.
+                        // getResolvedIcon returns null once a parked failure cooled down, so this retries after the cooldown instead.
                         String resolved = iconListener.getResolvedIcon(holder.video.channelId);
                         if (resolved == null) {
                             iconListener.onRequestFallbackIcon(holder.video.channelId);
@@ -188,13 +213,15 @@ public class VideoAdapter extends ArrayAdapter<VideoInfo> {
         }
     }
 
-    /** Resets the image state so the next visibility check reloads. */
+    /** Resets the image state so the next visibility check reloads (pending loads are cancelled). */
     public void resetImageView(View row) {
         if (row.getTag() instanceof ViewHolder) {
             ViewHolder holder = (ViewHolder) row.getTag();
-            holder.imagesLoaded = false;
-            if (holder.videoThumb != null) holder.videoThumb.setImageBitmap(null);
-            if (holder.channelThumb != null) holder.channelThumb.setImageBitmap(null);
+            if (holder.imagesLoaded) {
+                holder.imagesLoaded = false;
+                if (holder.videoThumb != null) ImageLoader.unbindImageView(holder.videoThumb);
+                if (holder.channelThumb != null) ImageLoader.unbindImageView(holder.channelThumb);
+            }
         }
     }
 

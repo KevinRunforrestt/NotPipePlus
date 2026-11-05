@@ -14,6 +14,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+import io.github.gohoski.notpipe.Utils;
+
 import io.github.gohoski.notpipe.api.Manager;
 import io.github.gohoski.notpipe.api.Metadata;
 
@@ -66,7 +68,7 @@ public class AutoCompleteAdapter extends BaseAdapter implements Filterable {
                                 public void run() {
                                     if (!searchActive) {
                                         suggestions.clear();
-                                        suggestions.addAll(results);
+                                        for (String r : results) suggestions.add(Utils.stripEmoji(r));
                                         notifyDataSetChanged();
                                         if (listener != null && !results.isEmpty()) {
                                             listener.onSuggestionsLoaded();

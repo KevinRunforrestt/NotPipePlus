@@ -18,13 +18,7 @@ import io.github.gohoski.notpipe.config.ConfigManager;
 import io.github.gohoski.notpipe.http.HttpClient;
 import io.github.gohoski.notpipe.http.HttpRequest;
 
-/**
- * Updates the API instance lists from the remote URL. Runs on its own
- * thread (Android 2.3 queues AsyncTasks serially, this job must never
- * hold them), uses the application context for dialogs (an activity-tied
- * one crashed when the activity died) and never wipes a working list
- * with an empty/broken remote payload.
- */
+/** Updates the API instance lists from the remote URL. */
 public class InstancesUpdater {
 
     private final Context context;
@@ -40,9 +34,7 @@ public class InstancesUpdater {
         this.listener = listener;
     }
 
-    /**
-     * Updates instances from the configured URL in the background.
-     */
+    /** Updates instances from the configured URL in the background. */
     public void updateInstances() {
         try {
             Context app = context != null ? context.getApplicationContext() : null;
@@ -52,8 +44,7 @@ public class InstancesUpdater {
             }
         } catch (Throwable ignored) {
         }
-        // Plain thread on purpose (see class comment): never occupies the
-        // serial Gingerbread AsyncTask queue.
+        // Plain thread on purpose (see class comment): never occupies the serial Gingerbread AsyncTask queue.
         new Thread(new Runnable() {
             public void run() {
                 final boolean success = doUpdate();
@@ -69,9 +60,7 @@ public class InstancesUpdater {
         }, "instances-update").start();
     }
 
-    /**
-     * Callback interface for when instances have been updated.
-     */
+    /** Callback interface for when instances have been updated. */
     public interface OnInstancesUpdatedListener {
         void onInstancesUpdated();
     }
@@ -81,8 +70,7 @@ public class InstancesUpdater {
             JSONObject obj = JSON.getObject(HttpClient.executeToString(
                     new HttpRequest(config.getInstancesUpdateUrl())));
 
-            // Never wipe a working list with an empty one: a bad payload
-            // must not leave the app without instances.
+            // Never wipe a working list with an empty one: a bad payload must not leave the app without instances.
             applyList(obj, "ytapilegacy", new Setter() {
                 public void set(List<String> l) {
                     config.setYtApiLegacyInstances(l);
@@ -103,6 +91,11 @@ public class InstancesUpdater {
                     config.setPipedInstances(l);
                 }
             });
+            applyList(obj, "typetype", new Setter() {
+                public void set(List<String> l) {
+                    config.setTypeTypeInstances(l);
+                }
+            });
 
             config.setLastUpdate(System.currentTimeMillis());
             ConfigManager.getInstance().saveConfig(config);
@@ -115,7 +108,7 @@ public class InstancesUpdater {
                 Context app = context != null ? context.getApplicationContext() : null;
                 if (app != null) {
                     final String msg = t.getMessage() == null ? "unknown error" : t.getMessage();
-                    Toast.makeText(app, "Instances update failed: " + msg,
+                    Toast.makeText(app, app.getString(io.github.gohoski.notpipe.R.string.update_failed, msg),
                             Toast.LENGTH_LONG).show();
                 }
             } catch (Throwable ignored) {

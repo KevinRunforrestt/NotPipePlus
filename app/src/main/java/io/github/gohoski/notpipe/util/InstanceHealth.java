@@ -8,16 +8,7 @@ import java.util.Map;
 
 import io.github.gohoski.notpipe.NotPipe;
 
-/**
- * Per-host health and speed memory for the API instances, persisted across
- * launches: every timed call feeds an exponential moving average of the
- * latency, every failure counts up and parks the host in a short "dead"
- * window. Pickers ask {@link #isDead} and {@link #score} to try healthy,
- * fast instances first instead of random ones — a random pick that lands
- * on a dead node costs a 10-20 s timeout, which is what made loading feel
- * slow. Stats recover automatically: a dead window expires and a success
- * lowers the score again.
- */
+/** Per-host health and speed memory for the API instances, persisted across launches. */
 public final class InstanceHealth {
 
     private static final String PREFS = "instance_health";
@@ -90,11 +81,7 @@ public final class InstanceHealth {
         return true;
     }
 
-    /**
-     * Sort key for pickers: smaller = try first. Dead hosts sort last; then
-     * faster hosts before slower ones; hosts without data come after known
-     * -good ones so the measured winners keep serving.
-     */
+    /** Sort key for pickers: smaller = try first. */
     public static long score(String host) {
         if (host == null) return Long.MAX_VALUE;
         ensureLoaded();
@@ -115,8 +102,7 @@ public final class InstanceHealth {
         try {
             Context ctx = NotPipe.getAppContext();
             if (ctx != null) {
-                // apply() needs API 9; commit() works everywhere on a
-                // background thread.
+                // apply() needs API 9; commit() works everywhere on a background thread.
                 ctx.getSharedPreferences(PREFS, 0).edit()
                         .putString(host, String.valueOf(value)).commit();
             }

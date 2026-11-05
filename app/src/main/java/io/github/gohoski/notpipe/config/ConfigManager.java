@@ -9,17 +9,14 @@ import java.util.List;
 import io.github.gohoski.notpipe.NotPipe;
 import io.github.gohoski.notpipe.Utils;
 
-/**
- * Created by opencode on 15.02.2026.
- * Singleton manager for loading and saving user configuration.
- * Uses SharedPreferences for persistence.
- */
+/** Created by opencode on 15.02.2026. */
 public class ConfigManager {
     private static final String PREFS_NAME = "notPipe";
     private static final String KEY_INVIDIOUS = "invidious";
     private static final String KEY_YT2009 = "yt2009";
     private static final String KEY_PIPED = "piped";
     private static final String KEY_YTAPILEGACY = "ytapilegacy";
+    private static final String KEY_TYPETYPE = "typetype";
     private static final String KEY_PREFERRED_QUALITY = "preferred_quality";
     private static final String KEY_UPDATE_INSTANCES = "update_instances_from_url";
     private static final String KEY_INSTANCES_URL = "instances_update_url";
@@ -34,6 +31,10 @@ public class ConfigManager {
     private static final String KEY_FEED_REFRESH_MODE = "feed_refresh_mode";
     private static final String KEY_FEED_REFRESH_INTERVAL = "feed_refresh_interval_minutes";
     private static final String KEY_HIDE_POPULAR_FEED = "hide_popular_feed";
+    private static final String KEY_DOWNLOAD_FOLDER = "download_folder";
+    private static final String KEY_HIDE_SHORTS_RECOMMENDATIONS = "hide_shorts_recommendations";
+    private static final String KEY_HIDE_SHORTS_SUBSCRIPTIONS = "hide_shorts_subscriptions";
+    private static final String KEY_SHORT_LENGTH_SECONDS = "short_length_seconds";
 
     private static final String SEPARATOR = ";";
 
@@ -59,16 +60,12 @@ public class ConfigManager {
         return instance;
     }
 
-    /**
-     * Get a copy of the current configuration.
-     */
+    /** Get a copy of the current configuration. */
     public Config getConfig() {
         return new Config(config);
     }
 
-    /**
-     * Save the given configuration to SharedPreferences.
-     */
+    /** Save the given configuration to SharedPreferences. */
     public void saveConfig(Config config) {
         this.config = new Config(config);
         saveToPrefs();
@@ -81,6 +78,7 @@ public class ConfigManager {
         editor.putString(KEY_YT2009, joinList(config.getYt2009Instances()));
         editor.putString(KEY_PIPED, joinList(config.getPipedInstances()));
         editor.putString(KEY_YTAPILEGACY, joinList(config.getYtApiLegacyInstances()));
+        editor.putString(KEY_TYPETYPE, joinList(config.getTypeTypeInstances()));
         editor.putString(KEY_PREFERRED_QUALITY, config.getPreferredQuality());
         editor.putBoolean(KEY_UPDATE_INSTANCES, config.isUpdateInstancesFromUrl());
         editor.putString(KEY_INSTANCES_URL, config.getInstancesUpdateUrl());
@@ -95,12 +93,18 @@ public class ConfigManager {
         editor.putInt(KEY_FEED_REFRESH_MODE, config.getFeedRefreshMode());
         editor.putInt(KEY_FEED_REFRESH_INTERVAL, config.getFeedRefreshIntervalMinutes());
         editor.putBoolean(KEY_HIDE_POPULAR_FEED, config.isHidePopularFeed());
+        editor.putBoolean(KEY_HIDE_SHORTS_RECOMMENDATIONS, config.isHideShortsRecommendations());
+        editor.putBoolean(KEY_HIDE_SHORTS_SUBSCRIPTIONS, config.isHideShortsSubscriptions());
+        editor.putInt(KEY_SHORT_LENGTH_SECONDS, config.getShortLengthSeconds());
+        String downloadFolder = config.getDownloadFolder();
+        if (downloadFolder == null || downloadFolder.trim().length() == 0) {
+            downloadFolder = Config.DEFAULT_DOWNLOAD_FOLDER;
+        }
+        editor.putString(KEY_DOWNLOAD_FOLDER, downloadFolder);
         editor.commit();
     }
 
-    /**
-     * Load configuration from SharedPreferences
-     */
+    /** Load configuration from SharedPreferences. */
     private void loadConfig() {
         config = new Config();
 
@@ -119,6 +123,11 @@ public class ConfigManager {
             config.setPipedInstances(parseList(pipedStr));
         }
 
+        String typetypeStr = prefs.getString(KEY_TYPETYPE, "");
+        if (typetypeStr.length() > 0) {
+            config.setTypeTypeInstances(parseList(typetypeStr));
+        }
+
         String ytApiLegacyStr = prefs.getString(KEY_YTAPILEGACY, "");
         if (ytApiLegacyStr.length() > 0) {
             config.setYtApiLegacyInstances(parseList(ytApiLegacyStr));
@@ -135,6 +144,14 @@ public class ConfigManager {
         config.setFeedRefreshMode(prefs.getInt(KEY_FEED_REFRESH_MODE, Config.FEED_REFRESH_ON_OPEN));
         config.setFeedRefreshIntervalMinutes(prefs.getInt(KEY_FEED_REFRESH_INTERVAL, 60));
         config.setHidePopularFeed(prefs.getBoolean(KEY_HIDE_POPULAR_FEED, false));
+        config.setHideShortsRecommendations(prefs.getBoolean(KEY_HIDE_SHORTS_RECOMMENDATIONS, true));
+        config.setHideShortsSubscriptions(prefs.getBoolean(KEY_HIDE_SHORTS_SUBSCRIPTIONS, true));
+        config.setShortLengthSeconds(prefs.getInt(KEY_SHORT_LENGTH_SECONDS, 90));
+
+        String downloadFolder = prefs.getString(KEY_DOWNLOAD_FOLDER, Config.DEFAULT_DOWNLOAD_FOLDER);
+        if (downloadFolder != null && downloadFolder.trim().length() > 0) {
+            config.setDownloadFolder(downloadFolder.trim());
+        }
 
         if (prefs.contains(KEY_CONVERT_VIDEOS)) {
             config.setStreamPlayback(prefs.getBoolean(KEY_STREAM_PLAYBACK, true));
@@ -142,36 +159,33 @@ public class ConfigManager {
             config.setUseExternalPlayer(prefs.getBoolean(KEY_EXTERNAL_PLAYER, false));
             config.setConvertCodec(prefs.getInt(KEY_CONVERT_CODEC, 0));
         } else { // First time setup
-            boolean convert, stream, external = false;
+            boolean convert, external = false;
             boolean notV7 = !Utils.isV7();
             if (NotPipe.SDK < 5 || (NotPipe.SDK < 11 && notV7)) {
                 convert = true;
-                stream = false;
             } else {
                 convert = false;
-                stream = true;
             }
             config.setConvertVideos(convert);
-            config.setStreamPlayback(stream);
+            config.setStreamPlayback(true);
             config.setUseExternalPlayer(external);
             config.setConvertCodec(0);
             SharedPreferences.Editor editor = prefs.edit();
             editor.putBoolean(KEY_CONVERT_VIDEOS, convert);
-            editor.putBoolean(KEY_STREAM_PLAYBACK, stream);
+            editor.putBoolean(KEY_STREAM_PLAYBACK, true);
             editor.putBoolean(KEY_EXTERNAL_PLAYER, external);
             editor.putInt(KEY_CONVERT_CODEC, 0);
             editor.commit();
         }
     }
 
-    /**
-     * Apply default instances if no instances are configured.
-     */
+    /** Apply default instances if no instances are configured. */
     public void ensureInstancesConfigured() {
         if (config.getInvidiousInstances().isEmpty()
                 && config.getYt2009Instances().isEmpty()
                 && config.getPipedInstances().isEmpty()
-                && config.getYtApiLegacyInstances().isEmpty()) {
+                && config.getYtApiLegacyInstances().isEmpty()
+                && config.getTypeTypeInstances().isEmpty()) {
             config.applyDefaults();
             saveToPrefs();
         }

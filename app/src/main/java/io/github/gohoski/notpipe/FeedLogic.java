@@ -13,27 +13,12 @@ import cc.nnproject.json.JSONException;
 import cc.nnproject.json.JSONObject;
 import io.github.gohoski.notpipe.data.VideoInfo;
 
-/**
- * Pure logic of the NewPipe-style subscriptions feed (no I/O of its own,
- * FeedManager owns the files):
- *  - cache serialization/deserialization of the merged feed;
- *  - per-channel lastUpdate state serialization;
- *  - the outdated-subscriptions selection (NewPipe's feed_update_threshold
- *    logic: never-fetched channels first, then failed ones, then stale ones);
- *  - the merge (NewPipe's FeedDatabaseManager.getUpdatedVideos equivalent):
- *    cached videos of untouched channels + fresh ones, deduplicated by id,
- *    newest first, with channel name/avatar enrichment from the
- *    subscription list.
- *
- * Java 1.5 (Android 1.5+): no streams, no diamond operators.
- */
+/** Pure logic of the NewPipe-style subscriptions feed (no I/O of its own, FeedManager owns the files) */
 public final class FeedLogic {
 
-    /** Videos kept per channel in the merged feed (NewPipe caps its feed
-     *  rows per subscription too). */
+    /** Videos kept per channel in the merged feed (NewPipe caps its feed rows per subscription too). */
     public static final int FEED_VIDEOS_PER_CHANNEL = 12;
-    /** Hard cap of the merged feed: a 2011 device must not re-layout a
-     *  500-row list, and the cache file stays small. */
+    /** Hard cap of the merged feed: a 2011 device must not re-layout a 500-row list, and the cache file stays small. */
     public static final int FEED_MAX_ITEMS = 240;
 
     /** Cached feed payload: the merged list + when it was loaded. */
@@ -49,9 +34,7 @@ public final class FeedLogic {
 
     private FeedLogic() {}
 
-    // ------------------------------------------------------------------
-    // Cache (de)serialization
-    // ------------------------------------------------------------------
+    // --- Cache (de)serialization ---
 
     /** Parses the on-disk cache; null when the payload is unusable. */
     public static CachedFeed parseCache(String json) {
@@ -111,9 +94,7 @@ public final class FeedLogic {
         return root.toString();
     }
 
-    // ------------------------------------------------------------------
-    // Per-channel state (de)serialization
-    // ------------------------------------------------------------------
+    // --- Per-channel state (de)serialization ---
 
     /** Parses {channelId: lastUpdateMs}; empty map when unusable. */
     public static Map<String, Long> parseState(String json) {
@@ -147,18 +128,9 @@ public final class FeedLogic {
         return root.toString();
     }
 
-    // ------------------------------------------------------------------
-    // Outdated selection + merge
-    // ------------------------------------------------------------------
+    // --- Outdated selection + merge ---
 
-    /**
-     * Channels worth re-checking now.
-     *
-     * @param subs subscription entries {id, name, avatar}
-     * @param state per-channel lastUpdate timestamps
-     * @param thresholdMs max age of a fresh check; -1 = check everything
-     * @param now current wall-clock time
-     */
+    /** Channels worth re-checking now. */
     public static List<String[]> outdatedSubscriptions(List<String[]> subs,
             Map<String, Long> state, long thresholdMs, long now) {
         List<String[]> outdated = new ArrayList<String[]>();
@@ -175,12 +147,7 @@ public final class FeedLogic {
         return outdated;
     }
 
-    /**
-     * Merges the fresh channel results into the previous feed: videos of
-     * channels that were just fetched replace their cached counterparts,
-     * untouched channels keep theirs, everything is deduplicated by id,
-     * sorted newest first and capped.
-     */
+    /** Merges fresh channel results into the previous feed, deduplicated by id, newest first. */
     public static List<VideoInfo> mergeFeed(List<VideoInfo> currentFeed,
             Map<String, List<VideoInfo>> fetched, Map<String, String[]> subsById) {
         List<VideoInfo> merged = new ArrayList<VideoInfo>();
@@ -236,8 +203,7 @@ public final class FeedLogic {
         return merged;
     }
 
-    /** Fills the channel name/avatar from the subscription entry when the
-     *  frontend row did not carry them (RSS rows never carry an avatar). */
+    /** Fills the channel name/avatar from the subscription entry when the row did not carry them. */
     private static VideoInfo enrich(VideoInfo v, String channelId,
             Map<String, String[]> subsById) {
         String[] sub = subsById == null ? null : (String[]) subsById.get(channelId);

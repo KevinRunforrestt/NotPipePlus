@@ -12,10 +12,7 @@ import io.github.gohoski.notpipe.data.VideoInfo;
 import io.github.gohoski.notpipe.http.HttpClient;
 import io.github.gohoski.notpipe.http.HttpRequest;
 
-/**
- * Implementation of yt2009's video endpoints
- * yt2009 isn't quite designed to be used as an API—it's more a frontend, however the video endpoints and HTML are straightforward
- */
+/** Implementation of yt2009's video endpoints. */
  class Yt2009 implements VideoStream, Conversion, ChannelApi {
     private String baseUrl;
 
@@ -41,18 +38,22 @@ import io.github.gohoski.notpipe.http.HttpRequest;
             default:
                 url = "/channel_fh264_getvideo?v=" + id;
         }
-        // We are requesting and getting the redirect URL manually to use our own User-Agent, since yt2009
-        // tries to convert videos to H.264 Contrained Baseline for Android <3.0 devices based on the User-Agent,
-        // which we don't actually want as it leads to 1. slowness
-        // 2. useless conversion to Contrained Baseline since user's either device supports Main or video is converted using getConvUrl
-        // 3. Contrained Baseline doesn't actually fix the codec problems on most Android devices with them
-        // 4. This also automatically checks if the instance is dead
+        // We are requesting and getting the redirect URL manually to use our own User-Agent.
         return HttpClient.getRedirectUrl(baseUrl, url, timeout);
     }
 
     @Override
-    public String getConvUrl(String id, int codec) throws IOException {
-        return HttpClient.getRedirectUrl(baseUrl, (codec == 1 ? "/http_3gp?v=" : "/http_mpeg4?v=") + id, HttpClient.CONVERSION_TIMEOUT);
+    public String getConvUrl(String id, Codec codec) throws IOException {
+        String path;
+        switch (codec) {
+            case MPEG4:
+                path = "/http_mpeg4?v="; break;
+            case MPEG4_360:
+                path = "/http_mpeg4_360?v="; break;
+            default:
+                path = "/http_3gp_288?v=";
+        }
+        return HttpClient.getRedirectUrl(baseUrl, path + id, HttpClient.CONVERSION_TIMEOUT);
     }
 
     @Override
@@ -71,7 +72,7 @@ import io.github.gohoski.notpipe.http.HttpRequest;
         Matcher matcher = pattern.matcher(html);
         while (matcher.find()) {
             String videoId = matcher.group(1);
-            String title = matcher.group(2);
+            String title = Utils.decodeHtmlEntities(matcher.group(2));
             String rawMetadata = matcher.group(3);
 
             long views = -1;
@@ -87,7 +88,7 @@ import io.github.gohoski.notpipe.http.HttpRequest;
                 }
             }
 
-            videos.add(new VideoInfo(videoId, title.trim(), baseUrl + "/thumb_proxy?v=" + videoId, "", "", "", null, views, date));
+            videos.add(new VideoInfo(videoId, title.trim(), baseUrl + "/thumb_proxy?v=" + videoId, null, null, null, null, views, date));
         }
         return videos;
     }

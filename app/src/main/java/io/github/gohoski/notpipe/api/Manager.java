@@ -30,9 +30,7 @@ import io.github.gohoski.notpipe.http.HttpRequest;
 import io.github.gohoski.notpipe.http.VideoTooLongException;
 import io.github.gohoski.notpipe.util.InstanceHealth;
 
-/**
- * Manager class for handling multiple API instances with fallback capability.
- */
+/** Manager class for handling multiple API instances with fallback capability. */
 public class Manager {
     private static Manager instance;
     private Random random;
@@ -109,6 +107,15 @@ public class Manager {
             videoInstances.add(piped);
         }
 
+        List<String> typeTypeList = config.getTypeTypeInstances();
+        for (int i = 0; i < typeTypeList.size(); i++) {
+            TypeType typeType = new TypeType(typeTypeList.get(i));
+            metadataInstances.add(typeType);
+            videoInstances.add(typeType);
+            hqInstances.add(typeType);
+            channelApiInstances.add(typeType);
+        }
+
         List<String> ytApiInstances = config.getYtApiLegacyInstances();
         for (int i = 0; i < ytApiInstances.size(); i++) {
             YtApiLegacy ytApi = new YtApiLegacy(ytApiInstances.get(i));
@@ -124,9 +131,7 @@ public class Manager {
         return createStatefulFallbackProxy(Metadata.class, metadataInstances, KEY_METADATA_HOST);
     }
 
-    /** One raw Metadata instance without the fallback proxy. Prefers a
-     *  healthy, fast one (random among the best) so icon fallbacks do not
-     *  burn their attempts on dead nodes. */
+    /** One raw Metadata instance without the fallback proxy. */
     public Metadata getRandomMetadata() {
         if (metadataInstances == null || metadataInstances.isEmpty()) {
             return null;
@@ -134,11 +139,7 @@ public class Manager {
         return pickHealthiest(metadataInstances);
     }
 
-    /** One raw Invidious instance, health-picked; falls back to the mixed
-     *  pool when no Invidious instance is configured. Used by the channel
-     *  icon resolver: Invidious image URLs are served by the instance
-     *  itself, while Piped ones need the image proxies that some networks
-     *  cannot reach at all. */
+    /** One raw Invidious instance, health-picked; falls back to the mixed pool when none is live. */
     public Metadata getRandomInvidiousMetadata() {
         if (metadataInstances != null && !metadataInstances.isEmpty()) {
             List<Metadata> inv = new ArrayList<Metadata>();
@@ -169,8 +170,7 @@ public class Manager {
         return tied.get(random.nextInt(tied.size()));
     }
 
-    /** A Metadata proxy over the YtApiLegacy instances, or null when none
-     *  are configured (YtApiLegacy serves the Popular feed best). */
+    /** A Metadata proxy over the YtApiLegacy instances, or null when none are configured. */
     public Metadata getPopularMetadata() {
         if (metadataInstances == null || metadataInstances.isEmpty()) {
             return null;
@@ -200,20 +200,11 @@ public class Manager {
         return conversionInstances;
     }
 
-    /**
-     * Subtitle track list served by the configured Piped instances: their
-     * caption URLs are currently the only ones that resolve on legacy
-     * devices (Invidious bodies get a bot page). The instance that served
-     * the last good list is tried first with a light first-bytes probe,
-     * then every remaining instance races in parallel; the first healthy
-     * list wins. An empty list is definitive ("no captions"); null only
-     * when no Piped instance could be asked.
-     */
+    /** Subtitle track list served by the configured Piped instances (only working caption URLs). */
     public List<SubtitleTrack> getPipedSubtitles(String videoId) {
         if (metadataInstances == null || metadataInstances.isEmpty() || videoId == null) return null;
         final String vid = videoId;
-        // Copy the pool: instances can be removed while we iterate from a
-        // background thread.
+        // Copy the pool: instances can be removed while we iterate from a background thread.
         List<Metadata> pool = new ArrayList<Metadata>();
         for (int i = 0; i < metadataInstances.size(); i++) {
             Metadata m = metadataInstances.get(i);
@@ -242,8 +233,7 @@ public class Manager {
             }
         }
 
-        // 2. Race every remaining instance (cheap probe each); the first
-        //    healthy list wins, instead of walking dead ones one by one.
+        // 2. Race every remaining instance (cheap probe each); the first healthy list wins, instead of walking dead ones one by one.
         final Object lock = new Object();
         final List[] winner = new List[1];
         final List[] empty = new List[1];
@@ -300,9 +290,7 @@ public class Manager {
     /** Timeout budget of the caption list race: a picker must not hang. */
     private static final long CAPTION_PROBE_TIMEOUT_MS = 8000;
 
-    // ------------------------------------------------------------------
-    // Caption winner memory (persisted, tiny SharedPreferences)
-    // ------------------------------------------------------------------
+    // --- Caption winner memory (persisted, tiny SharedPreferences) ---
     private static final String CAPTION_PREFS = "caption_cache";
     private static final String KEY_PIPED_HOST = "piped_host";
     private static final String KEY_INV_BASE = "invidious_base";
@@ -388,13 +376,7 @@ public class Manager {
         }
     }
 
-    /**
-     * One cheap probe of a candidate's caption proxy: reads only the
-     * first bytes and checks they look like VTT cues (a 403/HTML reply
-     * means the route is dead). Legacy TLS cannot complete the https://
-     * handshakes most proxies advertise, but most serve the same body
-     * over plain http:// — the probe tries that downgrade too.
-     */
+    /** One cheap probe of a candidate's caption proxy: reads only the first bytes and checks they look like VTT cues. */
     private boolean captionRouteWorks(SubtitleTrack track) {
         String url = track.url;
         if (url == null || url.length() == 0) return false;
@@ -406,8 +388,7 @@ public class Manager {
         return false;
     }
 
-    /** First-bytes caption probe: VTT cue markers within the first 256
-     *  characters; an HTML opener means blocked. */
+    /** First-bytes caption probe: VTT cue markers within the first 256 characters; an HTML opener means blocked. */
     private boolean probeCaptionHead(String url) {
         InputStream in = null;
         try {
@@ -435,9 +416,7 @@ public class Manager {
         }
     }
 
-    /** https://host/... -> http://host/..., or null when the URL is not
-     * https. Raw youtube.com timedtext links are excluded (unreachable
-     * from legacy TLS regardless of scheme). */
+    /** https://host/... */
     public static String httpDowngrade(String url) {
         if (url == null || url.length() == 0) return null;
         if (!url.startsWith("https://")) return null;
@@ -445,11 +424,7 @@ public class Manager {
         return "http://" + url.substring(8);
     }
 
-    /**
-     * Parses one comment-replies page fetched from the absolute repliesUrl
-     * a comment carried. The backend tag selects the JSON schema; the
-     * avatar rewriting uses any configured instance of that frontend.
-     */
+    /** Parses one comment-replies page fetched from the absolute repliesUrl a comment carried. */
     public List<Comment> parseCommentReplies(int backend, String json) throws IOException {
         List<Metadata> pool = new ArrayList<Metadata>(metadataInstances);
         Metadata parser = null;
@@ -471,10 +446,7 @@ public class Manager {
         return ((Invidious) parser).parseReplies(json);
     }
 
-    /**
-     * Parses a further comments page fetched from the absolute moreUrl a
-     * CommentsPage carried; same backend-tag routing as the replies above.
-     */
+    /** Parses a further comments page fetched from the absolute moreUrl a CommentsPage carried. */
     public CommentsPage parseMoreComments(int backend, String json, String videoId) throws IOException {
         List<Metadata> pool = new ArrayList<Metadata>(metadataInstances);
         Metadata parser = null;
@@ -496,11 +468,20 @@ public class Manager {
         return ((Invidious) parser).parseMoreComments(json, videoId);
     }
 
+    /** Notified each time a failover loop starts a fetch attempt against another instance. */
+    public interface InstanceAttemptListener {
+        void onInstanceAttempt(VideoStream instance);
+    }
+
     public String getVideoUrl(String videoId, String quality, int timeout) throws IOException {
-        return getVideoUrl(videoId, quality, timeout, null, null);
+        return getVideoUrl(videoId, quality, timeout, null, null, null);
     }
 
     public String getVideoUrl(String videoId, String quality, int timeout, VideoStream preferredInstance, VideoStream[] successfulInstance) throws IOException {
+        return getVideoUrl(videoId, quality, timeout, preferredInstance, successfulInstance, null);
+    }
+
+    public String getVideoUrl(String videoId, String quality, int timeout, VideoStream preferredInstance, VideoStream[] successfulInstance, InstanceAttemptListener attemptListener) throws IOException {
         List<VideoStream> targetList = "360".equals(quality) ? new ArrayList<VideoStream>(videoInstances) : new ArrayList<VideoStream>(hqInstances);
         if (targetList.isEmpty()) {
             reloadInstances();
@@ -522,6 +503,7 @@ public class Manager {
 
         for (int i = 0; i < targetList.size(); i++) {
             VideoStream currentInstance = targetList.get(i);
+            if (attemptListener != null) attemptListener.onInstanceAttempt(currentInstance);
             long startedAt = System.currentTimeMillis();
             try {
                 String url = currentInstance.getVideoUrl(videoId, quality, timeout);
@@ -560,11 +542,15 @@ public class Manager {
         throw new IOException("All instances failed");
     }
 
-    public String getConvUrl(String videoId, String quality, int codec) throws IOException {
-        return getConvUrl(videoId, quality, codec, null, null);
+    public String getConvUrl(String videoId, String quality, Codec codec) throws IOException {
+        return getConvUrl(videoId, quality, codec, null, null, null);
     }
 
-    public String getConvUrl(String videoId, String quality, int codec, VideoStream preferredInstance, VideoStream[] successfulInstance) throws IOException {
+    public String getConvUrl(String videoId, String quality, Codec codec, VideoStream preferredInstance, VideoStream[] successfulInstance) throws IOException {
+        return getConvUrl(videoId, quality, codec, preferredInstance, successfulInstance, null);
+    }
+
+    public String getConvUrl(String videoId, String quality, Codec codec, VideoStream preferredInstance, VideoStream[] successfulInstance, InstanceAttemptListener attemptListener) throws IOException {
         if (configManager.getConfig().isConvertVideos()) {
             if (conversionInstances.isEmpty()) {
                 reloadInstances();
@@ -587,6 +573,9 @@ public class Manager {
 
             for (int i = 0; i < targetConvList.size(); i++) {
                 Conversion currentInstance = targetConvList.get(i);
+                if (attemptListener != null && currentInstance instanceof VideoStream) {
+                    attemptListener.onInstanceAttempt((VideoStream) currentInstance);
+                }
                 long startedAt = System.currentTimeMillis();
                 try {
                     String url = currentInstance.getConvUrl(videoId, codec);
@@ -615,11 +604,10 @@ public class Manager {
         }
 
         // Fall back to standard stream URLs when conversion is disabled or failed
-        return getVideoUrl(videoId, quality, HttpClient.CONVERSION_TIMEOUT, preferredInstance, successfulInstance);
+        return getVideoUrl(videoId, quality, HttpClient.CONVERSION_TIMEOUT, preferredInstance, successfulInstance, attemptListener);
     }
 
-    /** Health-first ordering with a random shuffle first, so equally
-     *  healthy instances still rotate (stable, health-sorted by score). */
+    /** Health-first ordering with a random shuffle, so equally healthy instances still rotate. */
     private <T> void sortByHealthShuffled(List<T> list) {
         if (list == null || list.size() <= 1) return;
         java.util.Collections.shuffle(list, random);
@@ -632,111 +620,132 @@ public class Manager {
         });
     }
 
-    /** Creates a dynamic proxy that retains one instance for the lifespan
-     *  of the Activity, re-picking on failure. */
+    /** Creates a dynamic proxy that retains one instance for the lifespan of the Activity, re-picking on failure. */
     @SuppressWarnings("unchecked")
     private <T> T createStatefulFallbackProxy(final Class<T> interfaceClass, final List<T> pool) {
         return createStatefulFallbackProxy(interfaceClass, pool, null);
     }
 
-    /**
-     * Same proxy with a "sticky winner": when {@code prefsKey} is set, the
-     * first pick prefers the host of the last call that succeeded (same idea
-     * as the caption winner memory). Picks are health-ordered (see
-     * InstanceHealth): the fast, alive instances serve first, a dead pick
-     * costs no random 10-20 s timeout, and every call feeds the latency
-     * memory so the ordering keeps improving.
-     */
+    /** Same proxy with a "sticky winner": the first pick prefers the host of the last success. */
     @SuppressWarnings("unchecked")
     private <T> T createStatefulFallbackProxy(final Class<T> interfaceClass, final List<T> pool, final String prefsKey) {
         return (T) Proxy.newProxyInstance(
                 interfaceClass.getClassLoader(),
                 new Class<?>[]{ interfaceClass },
-                new InvocationHandler() {
-                    private T currentInstance = null;
-                    /** Only the very first pick consults the memory. */
-                    private boolean firstPick = true;
+                new StatefulFallbackHandler<T>(interfaceClass, pool, prefsKey)
+        );
+    }
 
-                    private void pickNewInstance() {
-                        if (!pool.isEmpty()) {
-                            if (firstPick && prefsKey != null) {
-                                firstPick = false;
-                                T remembered = findByHost(pool, rememberedHost(prefsKey));
-                                if (remembered != null && !InstanceHealth.isDead(hostOf(remembered))) {
-                                    currentInstance = remembered;
-                                    return;
-                                }
-                            }
-                            currentInstance = pickHealthiest(pool);
-                        } else {
-                            currentInstance = null;
-                        }
-                    }
+    /** Invocation handler backing the stateful fallback proxies, retaining one instance per proxy. */
+    private class StatefulFallbackHandler<T> implements InvocationHandler {
+        private final Class<T> interfaceClass;
+        private final List<T> pool;
+        private final String prefsKey;
+        private T currentInstance = null;
+        /** Only the very first pick consults the memory. */
+        private boolean firstPick = true;
 
-                    @Override
-                    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-                        if (currentInstance == null) pickNewInstance();
+        StatefulFallbackHandler(Class<T> interfaceClass, List<T> pool, String prefsKey) {
+            this.interfaceClass = interfaceClass;
+            this.pool = pool;
+            this.prefsKey = prefsKey;
+        }
 
-                        // Cheap local getters are not network probes: timing
-                        // them would poison the latency memory.
-                        String methodName = method.getName();
-                        boolean networkCall = !("getName".equals(methodName)
-                                || "getHost".equals(methodName) || "toString".equals(methodName));
+        Object getCurrentInstance() {
+            return currentInstance;
+        }
 
-                        Throwable lastError = null;
-                        List<T> localPool = new ArrayList<T>(pool);
-
-                        while (!localPool.isEmpty()) {
-                            if (currentInstance == null || !localPool.contains(currentInstance)) {
-                                currentInstance = pickHealthiest(localPool);
-                            }
-
-                            long startedAt = System.currentTimeMillis();
-                            try {
-                                Object result = method.invoke(currentInstance, args);
-                                if (prefsKey != null) {
-                                    rememberHostIfChanged(prefsKey, hostOf(currentInstance));
-                                }
-                                if (networkCall) {
-                                    InstanceHealth.recordSuccess(hostOf(currentInstance),
-                                            System.currentTimeMillis() - startedAt);
-                                }
-                                return result;
-                            } catch (InvocationTargetException e) {
-                                if (e.getCause() instanceof ContentUnavailableException) {
-                                    // The instance answered: the content
-                                    // genuinely does not exist. The route is
-                                    // healthy - do not switch instances.
-                                    if (networkCall) {
-                                        InstanceHealth.recordSuccess(hostOf(currentInstance),
-                                                System.currentTimeMillis() - startedAt);
-                                    }
-                                    throw e.getCause();
-                                }
-                                e.printStackTrace();
-                                lastError = e.getCause();
-                                if (networkCall && isDeadInstanceError(lastError)) {
-                                    InstanceHealth.recordFailure(hostOf(currentInstance));
-                                }
-                                localPool.remove(currentInstance);
-
-                                if (isDeadInstanceError(lastError)) {
-                                    removeDeadInstance(currentInstance);
-                                }
-                                currentInstance = null;
-                            }
-                        }
-
-                        if (pool.isEmpty()) {
-                            reloadInstances();
-                            showConnectionErrorToast();
-                        }
-
-                        if (lastError != null) throw lastError;
-                        throw new IOException("No available instances left for " + interfaceClass.getSimpleName());
+        private void pickNewInstance() {
+            if (!pool.isEmpty()) {
+                if (firstPick && prefsKey != null) {
+                    firstPick = false;
+                    T remembered = findByHost(pool, rememberedHost(prefsKey));
+                    if (remembered != null && !InstanceHealth.isDead(hostOf(remembered))) {
+                        currentInstance = remembered;
+                        return;
                     }
                 }
-        );
+                currentInstance = pickHealthiest(pool);
+            } else {
+                currentInstance = null;
+            }
+        }
+
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            if (currentInstance == null) pickNewInstance();
+
+            // Cheap local getters are not network probes: timing them would poison the latency memory.
+            String methodName = method.getName();
+            boolean networkCall = !("getName".equals(methodName)
+                    || "getHost".equals(methodName) || "toString".equals(methodName));
+
+            Throwable lastError = null;
+            List<T> localPool = new ArrayList<T>(pool);
+
+            while (!localPool.isEmpty()) {
+                if (currentInstance == null || !localPool.contains(currentInstance)) {
+                    currentInstance = pickHealthiest(localPool);
+                }
+
+                long startedAt = System.currentTimeMillis();
+                try {
+                    Object result = method.invoke(currentInstance, args);
+                    if (prefsKey != null) {
+                        rememberHostIfChanged(prefsKey, hostOf(currentInstance));
+                    }
+                    if (networkCall) {
+                        InstanceHealth.recordSuccess(hostOf(currentInstance),
+                                System.currentTimeMillis() - startedAt);
+                    }
+                    return result;
+                } catch (InvocationTargetException e) {
+                    if (e.getCause() instanceof ContentUnavailableException) {
+                        // The instance answered: the content genuinely does not exist.
+                        if (networkCall) {
+                            InstanceHealth.recordSuccess(hostOf(currentInstance),
+                                    System.currentTimeMillis() - startedAt);
+                        }
+                        throw e.getCause();
+                    }
+                    e.printStackTrace();
+                    lastError = e.getCause();
+                    if (networkCall && isDeadInstanceError(lastError)) {
+                        InstanceHealth.recordFailure(hostOf(currentInstance));
+                    }
+                    localPool.remove(currentInstance);
+
+                    if (isDeadInstanceError(lastError)) {
+                        removeDeadInstance(currentInstance);
+                    }
+                    currentInstance = null;
+                }
+            }
+
+            if (pool.isEmpty()) {
+                reloadInstances();
+                showConnectionErrorToast();
+            }
+
+            if (lastError != null) throw lastError;
+            throw new IOException("No available instances left for " + interfaceClass.getSimpleName());
+        }
+    }
+
+    /** Returns the raw instance currently retained by a stateful fallback proxy. */
+    public Object getCurrentInstance(Object proxy) {
+        if (proxy == null || !Proxy.isProxyClass(proxy.getClass())) return null;
+        InvocationHandler handler = Proxy.getInvocationHandler(proxy);
+        if (handler instanceof StatefulFallbackHandler) {
+            return ((StatefulFallbackHandler) handler).getCurrentInstance();
+        }
+        return null;
+    }
+
+    /** Resolves the VideoStream capability of the instance currently backing the given Metadata fallback proxy. */
+    public VideoStream resolveVideoStream(Metadata metadata) {
+        Object current = getCurrentInstance(metadata);
+        return current instanceof VideoStream ? (VideoStream) current : null;
     }
 
     public void removeDeadInstance(Object instance) {
@@ -812,9 +821,7 @@ public class Manager {
         return false;
     }
 
-    // ------------------------------------------------------------------
-    // Sticky winner memory (SharedPreferences, tiny)
-    // ------------------------------------------------------------------
+    // --- Sticky winner memory (SharedPreferences, tiny) ---
     private static final String INSTANCE_PREFS = "instance_cache";
     private static final String KEY_METADATA_HOST = "metadata_host";
     private static final String KEY_CHANNEL_HOST = "channel_host";
@@ -841,8 +848,7 @@ public class Manager {
         return null;
     }
 
-    /** Persists a new winner host; writes only when it actually changed
-     *  (a commit is disk I/O on the request thread). */
+    /** Persists a new winner host; writes only when it actually changed (a commit is disk I/O on the request thread). */
     private static void rememberHostIfChanged(String prefsKey, String host) {
         if (host == null || host.length() == 0) return;
         if (host.equals(rememberedHost(prefsKey))) return;
@@ -875,9 +881,7 @@ public class Manager {
         public boolean supportsAllQualities;
     }
 
-    /** Snapshot of the playable instances for the picker dialog. A pure
-     *  read: re-initializing here would resurrect instances already
-     *  removed as dead (and rebuild every list on the UI thread). */
+    /** Snapshot of the playable instances for the picker dialog. */
     public List<InstanceInfo> videoInstancesInfo() {
         if (videoInstances == null || hqInstances == null) {
             initializeInstances(); // first call before any init

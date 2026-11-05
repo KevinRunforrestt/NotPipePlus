@@ -14,29 +14,6 @@
         android:focusable="true"
         android:focusableInTouchMode="true"/>
 
-    <LinearLayout
-        android:layout_width="fill_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
-
-        <AutoCompleteTextView
-            android:id="@+id/search_query"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:hint="@android:string/search_go"
-            android:layout_weight="1"
-            android:saveEnabled="false"
-            android:singleLine="true"
-            android:imeOptions="actionSearch"
-            android:maxLength="100"/>
-
-        <ImageButton
-            android:id="@+id/search_btn"
-            android:layout_width="wrap_content"
-            android:layout_height="fill_parent"
-            android:src="@android:drawable/ic_menu_search"/>
-    </LinearLayout>
-
     <io.github.gohoski.notpipe.ui.FixedTabHost
         android:id="@+id/main_tabhost"
         android:layout_width="fill_parent"

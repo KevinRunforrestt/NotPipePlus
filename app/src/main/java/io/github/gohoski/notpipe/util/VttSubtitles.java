@@ -5,18 +5,7 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Minimal WebVTT subtitle parser + cue lookup, designed for old devices:
- *  - one linear array of cues, parsed once in the background
- *  - getTextAt() is a binary search over plain long[] arrays, so the
- *    playback tick handler costs only a few comparisons per 300 ms
- *  - no allocations while ticking: it returns the pre-built cue text
- *
- * Supports what the Invidious/Piped caption endpoints actually emit:
- * WEBVTT header, NOTE/STYLE blocks, "HH:MM:SS.mmm --> HH:MM:SS.mmm"
- * cue lines (with optional trailing settings), multi-line cue text,
- * inline tags (&lt;c&gt;, &lt;v Speaker&gt;, timestamps) and basic entities.
- */
+/** Minimal WebVTT subtitle parser + cue lookup, designed for old devices. */
 public class VttSubtitles {
 
     private static final Pattern CUE = Pattern.compile(
@@ -37,10 +26,7 @@ public class VttSubtitles {
         return starts.length;
     }
 
-    /**
-     * Returns the cue text valid at the given player position (ms),
-     * or null when no cue is active. Allocation-free.
-     */
+    /** Returns the cue text valid at the given player position (ms), or null when no cue is active. */
     public String getTextAt(long positionMs) {
         int lo = 0, hi = starts.length - 1;
         int found = -1;
@@ -55,17 +41,12 @@ public class VttSubtitles {
                 break;
             }
         }
-        // Cues are sorted by start time; overlapping cues are extremely rare
-        // in caption feeds, so the first hit is good enough.
+        // Cues are sorted by start time; overlapping cues are extremely rare in caption feeds, so the first hit is good enough.
         if (found != -1) return texts[found];
         return null;
     }
 
-    /**
-     * Parses WebVTT text. Returns an empty (size 0) object instead of
-     * throwing when the payload does not look like WebVTT, so callers
-     * can simply check size().
-     */
+    /** Parses WebVTT text. */
     public static VttSubtitles parse(String vtt) {
         if (vtt == null) return new VttSubtitles(new long[0], new long[0], new String[0]);
         // Strip BOM and normalize line endings once.
@@ -123,8 +104,7 @@ public class VttSubtitles {
                     texts.add(t);
                 }
             } else {
-                // Unrecognized line (cue identifier etc.): it is followed by
-                // the real cue line, so just continue scanning.
+                // Unrecognized line (cue identifier etc.): it is followed by the real cue line, so just continue scanning.
             }
         }
 

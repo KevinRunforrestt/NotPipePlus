@@ -5,39 +5,11 @@ import io.github.gohoski.notpipe.config.ConfigManager;
 
 import java.util.List;
 
-/**
- * Central router for remote images (video thumbnails, avatars, banners).
- *
- * Every image URL the app builds is served by an Invidious instance instead
- * of the Piped image proxies: the proxies turned out to be unreachable from
- * some networks the Kindle Fire sits on (thumbnails and avatars never loaded
- * there while the very same instance list worked everywhere else), while the
- * Invidious image routes proved reachable on that device — the subscriptions
- * feed has always loaded its thumbnails this way.
- *
- * Routes (identical to what a Piped row needs, both verified against live
- * instances to answer image/jpeg):
- *   /vi/{videoId}/mqdefault.jpg          video thumbnails
- *   /ggpht/{ggpht path}                  avatars / banners
- *
- * Which instance serves the images is NOT random anymore. The original
- * 0.4.1 release picked a random base and stuck with it: on a network where
- * most community instances are unreachable that blanked every thumbnail of
- * the session (and its failure counter was reset by unrelated avatar
- * successes, so the rotation never escaped the bad base). The bases are now
- * ordered by the measured health of the API hosts (InstanceHealth: known
- * latency first, unknown after, dead last — persisted between sessions),
- * a base that fails images is parked for a short window, and every failed
- * image is retried on the next live base by ImageLoader (bounded to
- * MAX_ALTERNATIVES extra bases), so one dead node can never blank a screen.
- */
+/** Central router for remote images (video thumbnails, avatars, banners). */
 public final class ImageRoutes {
     /** Extra bases tried per image after the first one fails. */
     static final int MAX_ALTERNATIVES = 3;
-    /** Image failures before a base is parked: one — every failed base
-     *  must cost exactly one attempt so an image's bounded alternative
-     *  chain marches forward instead of bouncing between dead nodes
-     *  (a parked base recovers by itself after PARK_MS). */
+    /** Image failures before a base is parked: one. */
     private static final int FAILS_BEFORE_PARK = 1;
     /** How long a parked base stays out of rotation. */
     private static final long PARK_MS = 2L * 60L * 1000L;
@@ -58,10 +30,7 @@ public final class ImageRoutes {
         return b + "/vi/" + videoId + "/mqdefault.jpg";
     }
 
-    /** Avatar / banner URL: any ggpht-shaped URL (Piped proxy form, direct
-     *  yt3.ggpht form or instance-relative form) is rerouted through the
-     *  /ggpht image route of the current Invidious base, upgraded from
-     *  webp to jpeg flags along the way; "" when no base. */
+    /** Avatar / banner URL: any ggpht-shaped URL (Piped proxy form, direct yt3.ggpht form or instance-relative form) */
     public static String avatar(String raw) {
         if (raw == null || raw.length() == 0) return "";
         String b = currentBase();
@@ -71,12 +40,7 @@ public final class ImageRoutes {
         return b + "/ggpht/" + path;
     }
 
-    /**
-     * Outcome of one image request. Unlike the original release this counts
-     * per base (the URL says which one served it), so a success on one base
-     * no longer resets the failure count of another. FAILS_BEFORE_PARK
-     * consecutive failures park the base for PARK_MS.
-     */
+    /** Outcome of one image request. */
     public static void reportResult(String url, boolean ok) {
         if (url == null) return;
         synchronized (ImageRoutes.class) {
@@ -100,13 +64,7 @@ public final class ImageRoutes {
         }
     }
 
-    /**
-     * Same image on the next live base, for the retry loop of ImageLoader:
-     * the failed URL's base is skipped (as are parked and API-dead bases).
-     * The scan starts AT the current base — after a park it is exactly the
-     * next best candidate. Null when the URL is not routed through this
-     * class or no live base is left — the caller then gives up as before.
-     */
+    /** Same image on the next live base, for the retry loop of ImageLoader: the failed URL's base is skipped. */
     public static String nextAlternative(String failedUrl) {
         if (failedUrl == null) return null;
         synchronized (ImageRoutes.class) {
@@ -125,16 +83,13 @@ public final class ImageRoutes {
         }
     }
 
-    /** True while a base can serve images: not parked here and not sitting
-     *  in the shared API-health dead window. */
+    /** True while a base can serve images: not parked here and not sitting in the shared API-health dead window. */
     private static boolean isLive(int i) {
         if (parkedUntil[i] > System.currentTimeMillis()) return false;
         return !InstanceHealth.isDead(hostOf(bases[i]));
     }
 
-    /** The currently used base, advancing past dead ones; null when the
-     *  pool is empty. When everything is parked the base whose parking
-     *  expires first is returned (retrying beats a guaranteed blank). */
+    /** The currently used base, advancing past dead ones; null when the pool is empty. */
     private static String currentBase() {
         synchronized (ImageRoutes.class) {
             if (!initialized) initBases();
@@ -172,8 +127,7 @@ public final class ImageRoutes {
         return -1;
     }
 
-    /** Loads the Invidious instance list from the config, best-health
-     *  first (stable: equal scores keep the config order). */
+    /** Loads the Invidious instance list from the config, best-health first. */
     private static void initBases() {
         initialized = true;
         bases = new String[0];
@@ -234,10 +188,7 @@ public final class ImageRoutes {
         return base;
     }
 
-    /** Extracts the ggpht path of an avatar/banner URL and upgrades its
-     *  webp format flag to jpeg (Android 2.3 cannot decode webp). Handles
-     *  the Piped proxy forms ("...-no-rw?host=", "...-no-rw-mo?host="),
-     *  direct ggpht URLs and instance-relative paths. */
+    /** Extracts the ggpht path of an avatar/banner URL and upgrades its webp format flag to jpeg. */
     private static String ggphtPath(String raw) {
         String s = raw.trim();
         if (s.startsWith("http://") || s.startsWith("https://")) {
@@ -252,9 +203,7 @@ public final class ImageRoutes {
         if (s.startsWith("ggpht/")) {
             s = s.substring(6);
         }
-        // Piped proxy paths arrive base64-encoded with the format flag
-        // before "?host="; an Invidious /ggpht route accepts the path as
-        // is but answers webp unless the flag says jpeg.
+        // Piped proxy paths arrive base64-encoded with the format flag before "?host=".
         int hostAt = s.indexOf("?host=");
         String head = hostAt == -1 ? s : s.substring(0, hostAt);
         String tail = hostAt == -1 ? "" : s.substring(hostAt);
