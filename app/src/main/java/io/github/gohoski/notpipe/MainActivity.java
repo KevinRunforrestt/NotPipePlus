@@ -68,6 +68,10 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
     private static final int FEED_REFRESH_REBUILD = 2;
     private static final int FEED_REFRESH_RECONNECT = 3;
 
+    /** Automatic video-cache cleanup: at most one pass per day, files older than a day. */
+    private static final long CACHE_CLEAR_INTERVAL = 24L * 60L * 60L * 1000L;
+    private static final long CACHE_MAX_AGE = 24L * 60L * 60L * 1000L;
+
     private VideoAdapter adapter;
     private List<VideoInfo> videos;
     private AutoCompleteTextView searchQuery;
@@ -1029,6 +1033,32 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
             updateSubsViews();
         }
         scheduleFeedTimer();
+        autoClearVideoCacheIfDue();
+    }
+
+    /**
+     * Removes cached videos older than a day at most once per day.
+     * Runs only from the main screen, so an active VideoActivity is never affected.
+     */
+    private void autoClearVideoCacheIfDue() {
+        config = ConfigManager.getInstance().getConfig();
+        if (!config.isAutoClearCache()) return;
+
+        long now = System.currentTimeMillis();
+        long last = config.getLastCacheClear();
+        if (last > 0 && last <= now && now - last < CACHE_CLEAR_INTERVAL) return;
+
+        config.setLastCacheClear(now);
+        ConfigManager.getInstance().saveConfig(config);
+
+        final Context appContext = getApplicationContext();
+        new AsyncTask<Void, Void, Void>() {
+            @Override
+            protected Void doInBackground(Void... params) {
+                VideoStorage.clearOlderThan(appContext, CACHE_MAX_AGE);
+                return null;
+            }
+        }.execute();
     }
 
     @Override
@@ -1223,6 +1253,7 @@ public class MainActivity extends Activity implements InstancesUpdater.OnInstanc
         @Override
         protected void onPostExecute(SearchResult result) {
             if (isDestroyedFlag) return;
+            ImageLoader.cancelAllLoads();
             View loadingView = findViewById(R.id.loading);
             if (loadingView != null) loadingView.setVisibility(View.GONE);
             TextView emptyView = (TextView) findViewById(R.id.empty_videos);

@@ -33,7 +33,23 @@ public class ImageLoader {
     /** Longest-edge caps: thumbnails never need more than 480 px, avatars never more than 96 px. */
     private static final int MAX_THUMB_DIM = 480;
     private static final int MAX_AVATAR_DIM = 96;
-    private static final ExecutorService executor = Executors.newFixedThreadPool(DECODE_THREADS);
+    private static final ExecutorService[] executorHolder = new ExecutorService[1];
+    private static volatile ExecutorService executor = newExecutor();
+    /** URLs whose pending request lists were wiped by a cancelAllLoads: their delivery must abort. */
+    private static final java.util.HashSet<String> cancelledLoads = new java.util.HashSet<String>();
+
+    private static ExecutorService newExecutor() {
+        return Executors.newFixedThreadPool(DECODE_THREADS);
+    }
+
+    /** Re-creates the decode pool after a shutdownNow (loose threads finish their current image). */
+    private static void rearmExecutor() {
+        synchronized (executorHolder) {
+            if (executor.isShutdown()) {
+                executor = newExecutor();
+            }
+        }
+    }
     private static final Handler uiHandler = new Handler(Looper.getMainLooper());
     /** Approximate bytes held by the cached bitmaps (guarded by ImageLoader.class together with cacheHistory). */
     private static long cacheBytes = 0L;
@@ -116,7 +132,10 @@ public class ImageLoader {
         final List<ImageRequest> views = new ArrayList<ImageRequest>();
         views.add(new ImageRequest(imageView, callback));
         pendingViews.put(url, views);
-        executor.execute(new ImageLoadRunnable(url, useCache, maxDimPx));
+        // A fresh waiter un-cancels the URL: a previous runnable was interrupted, this one replaces it.
+        cancelledLoads.remove(url);
+        ExecutorService current = executor;
+        current.execute(new ImageLoadRunnable(url, useCache, maxDimPx));
     }
 
     /** Decodes a stream, optionally downscaled (two-pass bounds decode). */
@@ -191,6 +210,8 @@ public class ImageLoader {
 
         @Override
         public void run() {
+            // A pooled thread may carry a stale interrupt flag from a prior cancelAllLoads.
+            Thread.interrupted();
             final int MAX_RETRIES = 2;
             Bitmap bmp = null;
 
@@ -250,9 +271,10 @@ public class ImageLoader {
                 public void run() {
                     List<ImageRequest> pendingList;
                     synchronized (ImageLoader.class) {
+                        boolean abandoned = cancelledLoads.remove(url);
                         List<ImageRequest> stored = pendingViews.get(url);
-                        if (stored == null) {
-                            // Every request was cancelled while the decode ran (rows recycled by a fast scroll): nothing to deliver.
+                        if (stored == null || abandoned) {
+                            // Every request was cancelled while the decode ran (rows recycled by a fast scroll or a cancelAllLoads): nothing to deliver.
                             return;
                         }
                         pendingList = new ArrayList<ImageRequest>(stored);
@@ -335,6 +357,8 @@ public class ImageLoader {
                 }
                 if (list.isEmpty()) {
                     pendingViews.remove(key);
+                    // The last waiter for this URL is gone: a runnable still downloading it must not deliver.
+                    cancelledLoads.add(key);
                 }
             }
         }
@@ -365,8 +389,18 @@ public class ImageLoader {
     /** Cancel all pending image loads. Useful when clearing a list. */
     public static void cancelAllLoads() {
         synchronized (ImageLoader.class) {
+            java.util.Enumeration<String> keys = pendingViews.keys();
+            while (keys.hasMoreElements()) {
+                String key = keys.nextElement();
+                List<ImageRequest> list = pendingViews.get(key);
+                if (list != null && !list.isEmpty()) {
+                    cancelledLoads.add(key);
+                }
+            }
             pendingViews.clear();
         }
+        executor.shutdownNow();
+        rearmExecutor();
     }
 
     /** Clears the memory cache to free memory. */

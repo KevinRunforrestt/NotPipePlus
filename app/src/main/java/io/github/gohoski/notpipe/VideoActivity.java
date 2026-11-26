@@ -13,7 +13,6 @@ import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.util.TypedValue;
 import android.view.Menu;
@@ -151,7 +150,6 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
     private boolean isActivityStopped = false;
 
     private int videoBufferTimeout = 60000;
-    private static final String DIR_VIDEOS = "notPipe/videos";
 
     // --- Subtitles (WebVTT overlay on the VideoView) ---
     private VttSubtitles subtitles;
@@ -647,6 +645,8 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
     }
 
     private void hideDummyTab() {
+        // The dummy tab is only added on tablets running Android 3.0+ (see setupTabHost); elsewhere the first tab is a real one
+        if (!isTablet() || NotPipe.SDK < 11) return;
         final TabHost tabHost = (TabHost) findViewById(android.R.id.tabhost);
         if (tabHost != null && tabHost.getTabWidget() != null && tabHost.getTabWidget().getChildCount() > 0) {
             tabHost.getTabWidget().post(new Runnable() {
@@ -679,10 +679,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
     }
 
     private File getCachedVideoFile(String vId) {
-        File sdCard = Environment.getExternalStorageDirectory();
-        File dir = new File(sdCard, DIR_VIDEOS);
-        if (!dir.exists()) dir.mkdirs();
-        return new File(dir, vId + ".mp4");
+        return VideoStorage.getVideoFile(this, vId);
     }
 
     private void updatePlaybackViaText(String host) {
@@ -767,7 +764,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
 
                         // Local cached file?
                         boolean isLocalFile = false;
-                        if (videoUrl != null && (videoUrl.startsWith(Environment.getExternalStorageDirectory().getPath()) || videoUrl.startsWith("file://"))) {
+                        if (videoUrl != null && VideoStorage.isCachedVideoPath(context, videoUrl)) {
                             isLocalFile = true;
                         }
 
@@ -1048,7 +1045,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
             startSubtitleTicker();
         }
         if (videoUrl != null && !config.isUseExternalPlayer()) {
-            if (config.isStreamPlayback() || videoUrl.startsWith(Environment.getExternalStorageDirectory().getPath()) || videoUrl.startsWith("file://")) {
+            if (config.isStreamPlayback() || VideoStorage.isCachedVideoPath(this, videoUrl)) {
                 if (isVideoViewNeedsReload) {
                     showVideoLoadingUI();
 
@@ -2265,8 +2262,8 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
     }
 
     private void startVideoDownload(String quality, VideoStream pinnedInstance) {
-        if (!Environment.MEDIA_MOUNTED.equals(Environment.getExternalStorageState())) {
-            Toast.makeText(context, R.string.sd_card, Toast.LENGTH_LONG).show();
+        if (!VideoStorage.hasWritableStorage(context)) {
+            Toast.makeText(context, R.string.storage_unavailable, Toast.LENGTH_LONG).show();
             return;
         }
         userDownloadTask = new UserDownloadTask(quality, pinnedInstance);
@@ -2361,7 +2358,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
 
                 android.os.StatFs stat = new android.os.StatFs(downloadDir.getPath());
                 long availableSpace = (long) stat.getBlockSize() * (long) stat.getAvailableBlocks();
-                if (availableSpace < 150L * 1024L * 1024L) {
+                if (availableSpace < VideoStorage.MIN_FREE_BYTES) {
                     isNoSpaceError = true;
                     return null;
                 }
@@ -2481,6 +2478,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
     private void launchExternalPlayer(Uri data) {
         Intent intent = new Intent(Intent.ACTION_VIEW);
         intent.setDataAndType(data, "video/mp4");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         try {
             startActivity(intent);
         } catch (Exception e) {
@@ -2751,7 +2749,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
                     videoStream = successInstance[0];
                 }
                 VideoCache.putStream(videoId, resultUrl, requestedQuality, videoStream);
-                if (resultUrl.startsWith(Environment.getExternalStorageDirectory().getPath())) {
+                if (VideoStorage.isCachedVideoPath(context, resultUrl)) {
                     updatePlaybackViaText(getString(R.string.cache));
                     proceedPlay(resultUrl);
                 } else {
@@ -2807,7 +2805,8 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
     }
 
     private void proceedPlay(final String targetUrl) {
-        boolean isLocal = targetUrl.startsWith(Environment.getExternalStorageDirectory().getPath()) || targetUrl.startsWith("file://");
+        String playableUrl = VideoStorage.toPlayableUri(context, targetUrl);
+        boolean isLocal = VideoStorage.isCachedVideoPath(context, targetUrl);
         boolean shouldStream = config.isStreamPlayback() || isLocal;
 
         if (isLocal)
@@ -2819,7 +2818,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
 
         if (config.isUseExternalPlayer()) {
             if (shouldStream) {
-                launchExternalPlayer(Uri.parse(targetUrl));
+                launchExternalPlayer(Uri.parse(playableUrl));
             } else {
                 downloadVideoTask = new DownloadVideoTask();
                 downloadVideoTask.execute(targetUrl);
@@ -2830,7 +2829,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
 
             if (isActivityStopped) {
                 // Activity stopped: onResume handles the playback later.
-                videoUrl = shouldStream ? targetUrl : null;
+                videoUrl = shouldStream ? playableUrl : null;
                 if (!shouldStream) {
                     downloadVideoTask = new DownloadVideoTask();
                     downloadVideoTask.execute(targetUrl);
@@ -2842,9 +2841,9 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
             attachVideoListeners();
 
             if (shouldStream) {
-                videoUrl = targetUrl;
+                videoUrl = playableUrl;
                 videoView.setVisibility(View.VISIBLE);
-                loadVideoUri(targetUrl);
+                loadVideoUri(playableUrl);
             } else {
                 videoUrl = null;
                 downloadVideoTask = new DownloadVideoTask();
@@ -2855,7 +2854,7 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
 
     private class DownloadVideoTask extends AsyncTask<String, Integer, File> {
         private TextView progressView;
-        private boolean sdCardNotMounted = false;
+        private boolean storageUnavailable = false;
         private boolean noSpaceError = false;
 
         @Override
@@ -2869,20 +2868,13 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
         @Override
         protected File doInBackground(String... params) {
             try {
-                if (!Environment.MEDIA_MOUNTED.equals(Environment.getExternalStorageState())) {
-                    sdCardNotMounted = true;
-                    return null;
-                }
-                File sdCard = Environment.getExternalStorageDirectory();
-                android.os.StatFs stat = new android.os.StatFs(sdCard.getPath());
-                long availableSpace = (long) stat.getBlockSize() * (long) stat.getAvailableBlocks();
-                if (availableSpace < 150L * 1024L * 1024L) { // 150 Megabytes
-                    noSpaceError = true;
-                    return null;
-                }
-
                 String downloadUrl = params[0];
-                File videoFile = getCachedVideoFile(videoId);
+                File videoFile = VideoStorage.getDownloadFile(context, videoId);
+                if (videoFile == null) {
+                    storageUnavailable = !VideoStorage.hasWritableStorage(context);
+                    noSpaceError = !storageUnavailable;
+                    return null;
+                }
                 if (!videoFile.exists()) {
                     int timeout = config.isConvertVideos() ? HttpClient.CONVERSION_TIMEOUT : videoBufferTimeout;
                     HttpClient.downloadToFile(downloadUrl, videoFile.getAbsolutePath(), timeout, new HttpClient.DownloadProgressListener() {
@@ -2972,22 +2964,23 @@ public class VideoActivity extends Activity implements ConnectivityMonitor.Liste
             if (isCancelled()) return;
             if (progressView != null) progressView.setVisibility(View.GONE);
 
-            if (sdCardNotMounted) {
+            if (storageUnavailable) {
                 resetVideo(); restoreVideoUI();
-                Toast.makeText(context, R.string.sd_card, Toast.LENGTH_LONG).show();
+                Toast.makeText(context, R.string.storage_unavailable, Toast.LENGTH_LONG).show();
                 return;
             } else if (noSpaceError) {
                 resetVideo(); restoreVideoUI();
-                Toast.makeText(context, R.string.sd_card_space, Toast.LENGTH_LONG).show();
+                Toast.makeText(context, R.string.storage_space, Toast.LENGTH_LONG).show();
                 return;
             }
 
             if (videoFile != null) {
+                String playableUrl = VideoStorage.toPlayableUri(context, videoFile.getAbsolutePath());
                 if (config.isUseExternalPlayer()) {
-                    launchExternalPlayer(Uri.fromFile(videoFile));
+                    launchExternalPlayer(Uri.parse(playableUrl));
                 } else {
                     resetVideo();
-                    videoUrl = Uri.fromFile(videoFile).toString();
+                    videoUrl = playableUrl;
                     videoPlaying = true;
                     if (isActivityStopped) return;
                     applyOpenCoreLayoutFix();

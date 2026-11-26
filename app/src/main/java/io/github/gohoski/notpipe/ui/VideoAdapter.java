@@ -32,6 +32,9 @@ public class VideoAdapter extends ArrayAdapter<VideoInfo> implements ChannelIcon
     /** Avatar views are small: decode at a fraction of the source size. */
     private static final int AVATAR_MAX_DIM = 80;
 
+    /** Fixed row height for grid items (landscape tablets): stops jitter as titles wrap differently. */
+    private final int gridItemHeight;
+
     public interface ChannelIconListener {
         String getResolvedIcon(String channelId);
         void onRequestFallbackIcon(String channelId);
@@ -49,6 +52,9 @@ public class VideoAdapter extends ArrayAdapter<VideoInfo> implements ChannelIcon
         this.isFullLayout = resource == R.layout.item_video;
         this.isCompactLayout = resource == R.layout.item_video_compact;
         this.isNoIconLayout = resource == R.layout.item_video_noicon;
+        this.gridItemHeight = (int) android.util.TypedValue.applyDimension(
+                android.util.TypedValue.COMPLEX_UNIT_DIP, isFullLayout ? 250 : 220,
+                context.getResources().getDisplayMetrics());
     }
 
     public void setChannelIconListener(ChannelIconListener listener) {
@@ -97,21 +103,39 @@ public class VideoAdapter extends ArrayAdapter<VideoInfo> implements ChannelIcon
             }
         }
 
-        holder.video = video;
-        holder.imagesLoaded = false;
-        // Cancel any load a recycled view still has in flight and re-tag the views, so a late decode can never land in the wrong row.
-        ImageLoader.cancelLoad(holder.videoThumb);
-        holder.videoThumb.setTag(video.thumbnail);
-        if (holder.channelThumb != null) {
-            ImageLoader.cancelLoad(holder.channelThumb);
+        // ListViews keep their XML padding; GridView rows get a fixed height to stop jitter
+        // and zero horizontal padding (the grid itself already insets its children).
+        if (parent instanceof android.widget.GridView) {
+            android.view.ViewGroup.LayoutParams lp = row.getLayoutParams();
+            if (lp != null && lp.height != gridItemHeight && !isInChannelActivity) {
+                lp.height = gridItemHeight;
+                row.setLayoutParams(lp);
+            }
         }
-        holder.videoThumb.setImageBitmap(null);
-        if (holder.channelThumb != null) {
-            holder.channelThumb.setImageBitmap(null);
+
+        // Skip the image reset when the recycled row shows the same video with the same
+        // thumbnail: a re-bind would cancel and relaunch identical loads (grid jitter).
+        boolean sameVideo = holder.video == video
+                || (holder.video != null && video.id != null && video.id.equals(holder.video.id));
+        boolean sameThumb = video.thumbnail != null
+                ? video.thumbnail.equals(holder.videoThumb.getTag())
+                : holder.videoThumb.getTag() == null;
+
+        if (!sameVideo || !sameThumb) {
+            holder.video = video;
+            holder.imagesLoaded = false;
+            // Cancel any load a recycled view still has in flight and re-tag the views, so a late decode can never land in the wrong row.
+            ImageLoader.cancelLoad(holder.videoThumb);
+            holder.videoThumb.setTag(video.thumbnail);
+            holder.videoThumb.setImageBitmap(null);
+            if (holder.channelThumb != null) {
+                ImageLoader.cancelLoad(holder.channelThumb);
+                holder.channelThumb.setImageBitmap(null);
+            }
         }
 
         // Standard ListViews recycle naturally: load the images immediately.
-        if (!isLazyLoading) {
+        if (!isLazyLoading && !holder.imagesLoaded) {
             ImageLoader.loadImage(video.thumbnail, holder.videoThumb);
             loadChannelIcon(holder);
             holder.imagesLoaded = true;

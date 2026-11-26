@@ -1,3 +1,17 @@
+notPipe+ 0.4.2.1
+
+What's new:
+
+    Cached videos now fall back to internal storage when no SD card is present
+    New option to clear the video cache, and automatic cleanup of videos older than a day
+    Faster and safer downloads: buffered writes and stricter cancellation of stale image loads
+    Smoother lists: image loads are skipped when a recycled row shows the same video
+    Tablet layout improvements: fixed-height grid rows and tab indicators that no longer clip
+    The video screen layout was reorganized: the full-screen button sits next to the title
+    Comment author and date no longer wrap awkwardly long names
+    The instance list in Settings is collapsed behind a button to reduce clutter
+    Full Spanish translation (English and Russian stay available)
+
 notPipe+ 0.4.2
 
 What's new:

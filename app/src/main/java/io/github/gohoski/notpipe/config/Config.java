@@ -35,6 +35,8 @@ public class Config {
     private boolean hideShortsRecommendations;
     private boolean hideShortsSubscriptions;
     private int shortLengthSeconds;
+    private boolean autoClearCache;
+    private long lastCacheClear;
 
     Config() {
         invidiousInstances = new ArrayList<String>();
@@ -75,6 +77,8 @@ public class Config {
         hideShortsRecommendations = other.hideShortsRecommendations;
         hideShortsSubscriptions = other.hideShortsSubscriptions;
         shortLengthSeconds = other.shortLengthSeconds;
+        autoClearCache = other.autoClearCache;
+        lastCacheClear = other.lastCacheClear;
     }
 
     public List<String> getInvidiousInstances() {
@@ -299,5 +303,21 @@ public class Config {
 
     public void setShortLengthSeconds(int seconds) {
         this.shortLengthSeconds = seconds;
+    }
+
+    public boolean isAutoClearCache() {
+        return autoClearCache;
+    }
+
+    public void setAutoClearCache(boolean autoClear) {
+        this.autoClearCache = autoClear;
+    }
+
+    public long getLastCacheClear() {
+        return lastCacheClear;
+    }
+
+    public void setLastCacheClear(long lastClear) {
+        this.lastCacheClear = lastClear;
     }
 }
