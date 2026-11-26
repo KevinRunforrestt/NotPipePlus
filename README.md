@@ -111,3 +111,14 @@ Although not used as inspiration or a codebase, these other attempts of implemen
 The **notPipe** project is licensed under the Do What The Fuck You Want To Public License, Version 2. See [LICENSE](LICENSE) for details. *If you want, you may credit me in the README of your project.*
 
 HOWEVER, the NNJSON library is licensed under the MIT license. See [LICENSE-NNJSON](LICENSE-NNJSON) for details.
+
+## AI Disclosure
+
+**This project is fully vibe-coded.**
+
+NotPipePlus was developed entirely through vibe coding—every feature, hotfix, refactor, and upstream port was written and debugged with the assistance of **GLM 5.3**, a large language model by Z.ai.
+
+This is not a serious project. It is made just for fun, with no commercial purpose, production goals, or grand ambitions beyond tinkering with a legacy YouTube client. There are no warranties of any kind: if it works, that's great; if it breaks, that's funny too.
+
+NotPipePlus is a fork of [notPipe](https://github.com/gohoski/notPipe) by gohoski. Full credit for the original codebase goes to its author—only the additions and changes in this fork were vibe-coded.
+
